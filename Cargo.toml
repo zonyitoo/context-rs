@@ -1,0 +1,17 @@
+[package]
+name = "context"
+version = "0.1.0"
+authors = ["Y. T. Chung <zonyitoo@gmail.com>"]
+license = "MIT/ISC"
+repository = "https://github.com/zonyitoo/context-rs"
+description = "Context in Rust"
+readme = "README.md"
+build = "build.rs"
+keywords = ["context"]
+
+[build-dependencies]
+gcc = "*"
+log = "*"
+
+[dependencies]
+mmap = "*"
