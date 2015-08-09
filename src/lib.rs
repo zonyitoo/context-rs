@@ -12,4 +12,4 @@ pub use stack::Stack;
 pub mod context;
 pub mod stack;
 mod sys;
-mod thunk;
+pub mod thunk;
