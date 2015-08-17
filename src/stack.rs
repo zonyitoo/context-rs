@@ -10,7 +10,7 @@
 
 use std::ptr;
 use std::sync::atomic;
-use std::env::{self, page_size};
+use std::env;
 use std::fmt;
 
 use libc;
@@ -178,6 +178,22 @@ fn max_cached_stacks() -> usize {
     // initialization has run
     unsafe { AMT.store(amt + 1, atomic::Ordering::SeqCst); }
     return amt;
+}
+
+#[cfg(unix)]
+fn page_size() -> usize {
+    unsafe {
+        libc::sysconf(libc::_SC_PAGESIZE) as usize
+    }
+}
+
+#[cfg(windows)]
+fn page_size() -> usize {
+    unsafe {
+        let mut info = mem::zeroed();
+        libc::GetSystemInfo(&mut info);
+        info.dwPageSize as usize
+    }
 }
 
 #[cfg(test)]

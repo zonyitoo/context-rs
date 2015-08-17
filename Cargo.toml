@@ -1,6 +1,6 @@
 [package]
 name = "context"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Y. T. Chung <zonyitoo@gmail.com>"]
 license = "MIT/ISC"
 repository = "https://github.com/zonyitoo/context-rs"
@@ -10,8 +10,8 @@ build = "build.rs"
 keywords = ["context"]
 
 [build-dependencies]
-gcc = "*"
-log = "*"
+gcc = "^0.3.12"
+log = "^0.3.1"
 
 [dependencies]
-mmap = "*"
+mmap = "^0.1.1"
