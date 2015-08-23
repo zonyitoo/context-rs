@@ -10,12 +10,11 @@
 
 use stack::Stack;
 use std::usize;
-use std::mem::transmute;
 #[cfg(target_arch = "x86_64")]
-use std::simd;
-use thunk::Thunk;
+use std::boxed::FnBox;
 
 use libc;
+use simd;
 
 use sys;
 
@@ -33,7 +32,7 @@ pub struct Context {
     stack_bounds: Option<(usize, usize)>,
 }
 
-pub type InitFn = extern "C" fn(usize, *mut ()) -> !; // first argument is task handle, second is thunk ptr
+pub type InitFn = extern "C" fn(usize, *mut libc::c_void) -> !; // first argument is task handle, second is thunk ptr
 
 impl Context {
     pub fn empty() -> Context {
@@ -52,23 +51,24 @@ impl Context {
     /// FIXME: this is basically an awful the interface. The main reason for
     ///        this is to reduce the number of allocations made when a green
     ///        task is spawned as much as possible
-    pub fn new<'a, F>(init: InitFn, arg: usize, start: F, stack: &mut Stack) -> Context
-        where F: FnOnce() + Send + 'a
+    pub fn new<'a, F>(init: InitFn, arg: usize, start: Box<F>, stack: &mut Stack) -> Context
+        where F: FnBox() + 'a
     {
         let mut ctx = Context::empty();
         ctx.init_with(init, arg, start, stack);
         ctx
     }
 
-    pub fn init_with<'a, F>(&mut self, init: InitFn, arg: usize, start: F, stack: &mut Stack)
-        where F: FnOnce() + Send + 'a
+    pub fn init_with<'a, F>(&mut self, init: InitFn, arg: usize, start: Box<F>, stack: &mut Stack)
+        where F: FnBox() + 'a
     {
         let sp: *const usize = stack.end();
         let sp: *mut usize = sp as *mut usize;
         // Save and then immediately load the current context,
         // which we will then modify to call the given function when restored
 
-        initialize_call_frame(&mut self.regs, init, arg, unsafe { transmute(Box::new(Thunk::new(start))) }, sp);
+        let ptr: *mut Box<FnBox()> = Box::into_raw(Box::new(start));
+        initialize_call_frame(&mut self.regs, init, arg, ptr as *mut libc::c_void, sp);
 
         // Scheduler tasks don't have a stack in the "we allocated it" sense,
         // but rather they run on pthreads stacks. We have complete control over
@@ -172,7 +172,7 @@ impl Registers {
 }
 
 #[cfg(target_arch = "x86")]
-fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut (), sp: *mut usize) {
+fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut libc::c_void, sp: *mut usize) {
     // x86 has interesting stack alignment requirements, so do some alignment
     // plus some offsetting to figure out what the actual stack should be.
     let sp = align_down(sp);
@@ -213,7 +213,7 @@ impl Registers {
     fn new() -> Registers {
         Registers {
             gpr: [0; 14],
-            _xmm: [simd::u32x4(0,0,0,0); 10]
+            _xmm: [simd::u32x4::new(0,0,0,0); 10]
         }
     }
 }
@@ -231,13 +231,13 @@ impl Registers {
     fn new() -> Registers {
         Registers {
             gpr: [0; 10],
-            _xmm: [simd::u32x4(0,0,0,0); 6]
+            _xmm: [simd::u32x4::new(0,0,0,0); 6]
         }
     }
 }
 
 #[cfg(target_arch = "x86_64")]
-fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut (), sp: *mut usize) {
+fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut libc::c_void, sp: *mut usize) {
     extern { fn rust_bootstrap_green_task(); } // use an indirection because the call contract differences between windows and linux
     // TODO: use rust's condition compile attribute instead
 
@@ -291,7 +291,7 @@ impl Registers {
 }
 
 #[cfg(target_arch = "arm")]
-fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut (), sp: *mut usize) {
+fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut libc::c_void, sp: *mut usize) {
     extern { fn rust_bootstrap_green_task(); } // same as the x64 arch
 
     let sp = align_down(sp);
@@ -329,7 +329,7 @@ impl Registers {
 
 #[cfg(any(target_arch = "mips",
           target_arch = "mipsel"))]
-fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut (), sp: *mut usize) {
+fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut libc::c_void, sp: *mut usize) {
     let sp = align_down(sp);
     // sp of mips o32 is 8-byte aligned
     let sp = mut_offset(sp, -2);
@@ -361,18 +361,22 @@ pub fn mut_offset<T>(ptr: *mut T, count: isize) -> *mut T {
 
 #[cfg(test)]
 mod test {
-    use thunk::Thunk;
+    use libc;
+
     use std::mem::transmute;
     use std::sync::mpsc::channel;
     use std::rt::util::min_stack;
     use std::rt::unwind::try;
+    use std::boxed::FnBox;
 
     use stack::Stack;
     use context::Context;
 
-    extern "C" fn init_fn(arg: usize, f: *mut ()) -> ! {
-        let func: Box<Thunk<(), _>> = unsafe { transmute(f) };
-        if let Err(cause) = unsafe { try(move|| func.invoke(())) } {
+    extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
+        let func: Box<Box<FnBox()>> = unsafe {
+            Box::from_raw(f as *mut Box<FnBox()>)
+        };
+        if let Err(cause) = unsafe { try(move|| func()) } {
             error!("Panicked inside: {:?}", cause.downcast::<&str>());
         }
 
@@ -390,9 +394,9 @@ mod test {
         let (tx, rx) = channel();
 
         let mut stk = Stack::new(min_stack());
-        let ctx = Context::new(init_fn, unsafe { transmute(&cur) }, move|| {
+        let ctx = Context::new(init_fn, unsafe { transmute(&cur) }, Box::new(move|| {
             tx.send(1).unwrap();
-        }, &mut stk);
+        }), &mut stk);
 
         assert!(rx.try_recv().is_err());
 
