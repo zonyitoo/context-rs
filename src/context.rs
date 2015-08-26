@@ -14,7 +14,7 @@ use std::usize;
 use std::boxed::FnBox;
 
 use libc;
-use simd;
+use std::simd;
 
 use sys;
 
@@ -239,7 +239,7 @@ impl Registers {
     fn new() -> Registers {
         Registers {
             gpr: [0; 14],
-            _xmm: [simd::u32x4::new(0,0,0,0); 10]
+            _xmm: [simd::u32x4(0,0,0,0); 10]
         }
     }
 }
@@ -257,7 +257,7 @@ impl Registers {
     fn new() -> Registers {
         Registers {
             gpr: [0; 10],
-            _xmm: [simd::u32x4::new(0,0,0,0); 6]
+            _xmm: [simd::u32x4(0,0,0,0); 6]
         }
     }
 }
