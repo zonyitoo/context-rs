@@ -15,11 +15,11 @@ use std::fmt;
 
 use libc;
 
-use mmap::{MemoryMap, MapOption};
+use memmap::{Mmap, MmapOptions, Protection};
 
 /// A task's stack. The name "Stack" is a vestige of segmented stacks.
 pub struct Stack {
-    buf: Option<MemoryMap>,
+    buf: Option<Mmap>,
     min_size: usize,
 }
 
@@ -27,27 +27,12 @@ impl fmt::Debug for Stack {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "Stack {} buf: ", "{"));
         match self.buf {
-            Some(ref map) => try!(write!(f, "Some({:#x}), ", map.data() as libc::uintptr_t)),
+            Some(ref map) => try!(write!(f, "Some({:#x}), ", map.ptr() as libc::uintptr_t)),
             None => try!(write!(f, "None, ")),
         }
         write!(f, "min_size: {:?} {}", self.min_size, "}")
     }
 }
-
-// Try to use MAP_STACK on platforms that support it (it's what we're doing
-// anyway), but some platforms don't support it at all. For example, it appears
-// that there's a bug in freebsd that MAP_STACK implies MAP_FIXED (so it always
-// fails): http://lists.freebsd.org/pipermail/freebsd-bugs/2011-July/044840.html
-//
-// DragonFly BSD also seems to suffer from the same problem. When MAP_STACK is
-// used, it returns the same `ptr` multiple times.
-#[cfg(all(not(windows), not(target_os = "freebsd"), not(target_os = "dragonfly")))]
-static STACK_FLAGS: libc::c_int = libc::MAP_STACK | libc::MAP_PRIVATE | libc::MAP_ANON;
-#[cfg(any(target_os = "freebsd",
-          target_os = "dragonfly"))]
-static STACK_FLAGS: libc::c_int = libc::MAP_PRIVATE | libc::MAP_ANON;
-#[cfg(windows)]
-static STACK_FLAGS: libc::c_int = 0;
 
 impl Stack {
     /// Allocate a new stack of `size`. If size = 0, this will fail. Use
@@ -57,9 +42,17 @@ impl Stack {
         // allocation failure, which would fail to spawn the task. But there's
         // not many sensible things to do on OOM.  Failure seems fine (and is
         // what the old stack allocation did).
-        let stack = match MemoryMap::new(size, &[MapOption::MapReadable,
-                                                 MapOption::MapWritable,
-                                                 MapOption::MapNonStandardFlags(STACK_FLAGS)]) {
+
+        let options =
+            if cfg!(all(not(windows), not(target_os = "freebsd"), not(target_os = "dragonfly"))) {
+                MmapOptions { stack: true }
+            } else if cfg!(any(target_os = "freebsd", target_os = "dragonfly")) {
+                MmapOptions { stack: false }
+            } else {
+                MmapOptions { stack: false }
+            };
+
+        let stack = match Mmap::anonymous_with_options(size, Protection::ReadCopy, options) {
             Ok(map) => map,
             Err(e) => panic!("mmap for stack of size {} failed: {}", size, e)
         };
@@ -70,7 +63,7 @@ impl Stack {
         // guaranteed to be aligned properly.
         if !protect_last_page(&stack) {
             panic!("Could not memory-protect guard page. stack={:?}",
-                  stack.data());
+                  stack.ptr());
         }
 
         Stack {
@@ -96,7 +89,7 @@ impl Stack {
     /// Point to the low end of the allocated stack
     pub fn start(&self) -> *const usize {
         self.buf.as_ref()
-            .map(|m| m.data() as *const usize)
+            .map(|m| m.ptr() as *const usize)
             .unwrap_or(ptr::null())
     }
 
@@ -105,29 +98,29 @@ impl Stack {
         self.buf
             .as_ref()
             .map(|buf| unsafe {
-                buf.data().offset(buf.len() as isize) as *const usize
+                buf.ptr().offset(buf.len() as isize) as *const usize
             })
             .unwrap_or(ptr::null())
     }
 }
 
 #[cfg(unix)]
-fn protect_last_page(stack: &MemoryMap) -> bool {
+fn protect_last_page(stack: &Mmap) -> bool {
     unsafe {
         // This may seem backwards: the start of the segment is the last page?
         // Yes! The stack grows from higher addresses (the end of the allocated
         // block) to lower addresses (the start of the allocated block).
-        let last_page = stack.data() as *mut libc::c_void;
+        let last_page = stack.ptr() as *mut libc::c_void;
         libc::mprotect(last_page, page_size() as libc::size_t,
                        libc::PROT_NONE) != -1
     }
 }
 
 #[cfg(windows)]
-fn protect_last_page(stack: &MemoryMap) -> bool {
+fn protect_last_page(stack: &Mmap) -> bool {
     unsafe {
         // see above
-        let last_page = stack.data() as *mut libc::c_void;
+        let last_page = stack.ptr() as *mut libc::c_void;
         let mut old_prot: libc::DWORD = 0;
         libc::VirtualProtect(last_page, page_size() as libc::SIZE_T,
                              libc::PAGE_NOACCESS,

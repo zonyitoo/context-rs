@@ -4,7 +4,7 @@
 #[macro_use]
 extern crate log;
 extern crate libc;
-extern crate mmap;
+extern crate memmap;
 
 pub use context::Context;
 pub use stack::Stack;

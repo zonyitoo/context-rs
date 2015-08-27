@@ -14,4 +14,4 @@ gcc = "^0.3.12"
 log = "^0.3.1"
 
 [dependencies]
-mmap = "^0.1.1"
+memmap = "^0.1.0"
