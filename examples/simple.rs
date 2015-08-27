@@ -1,26 +1,3 @@
-# Context-rs
-
-[![Build Status](https://img.shields.io/travis/zonyitoo/context-rs.svg)](https://travis-ci.org/zonyitoo/context-rs)
-[![Build Status](https://img.shields.io/appveyor/ci/zonyitoo/context-rs.svg)](https://ci.appveyor.com/project/zonyitoo/context-rs)
-[![License](https://img.shields.io/crates/l/context.svg)](https://github.com/zonyitoo/context-rs)
-
-Context utilities in Rust
-
-```toml
-[dependencies]
-context = "*"
-```
-
-or use the dev version on master
-
-```toml
-[dependencies.context]
-git = "https://github.com/zonyitoo/context-rs.git"
-```
-
-## Usage
-
-```rust
 #![feature(libc, rt, fnbox, box_raw)]
 
 extern crate context;
@@ -61,16 +38,3 @@ fn main() {
     // Switch!
     Context::swap(&mut cur, &ctx);
 }
-```
-
-## Notices
-
-* This crate supports platforms in
-
-    - arm
-    - i686
-    - mips
-    - mipsel
-    - x86_64
-
-* The assembly code is in AT&T-style, so currently it only supports `*-gnu` target on Windows.
