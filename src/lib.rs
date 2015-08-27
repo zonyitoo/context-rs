@@ -4,12 +4,8 @@
 #[macro_use]
 extern crate log;
 extern crate libc;
-<<<<<<< HEAD
 extern crate memmap;
-=======
-extern crate mmap;
 extern crate simd;
->>>>>>> feature-fnbox
 
 pub use context::Context;
 pub use stack::Stack;
