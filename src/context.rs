@@ -84,12 +84,11 @@ impl Context {
             };
     }
 
-    /* Switch contexts
+    /// Switch contexts
 
-    Suspend the current execution context and resume another by
-    saving the registers values of the executing thread to a Context
-    then loading the registers from a previously saved Context.
-    */
+    /// Suspend the current execution context and resume another by
+    /// saving the registers values of the executing thread to a Context
+    /// then loading the registers from a previously saved Context.
     pub fn swap(out_context: &mut Context, in_context: &Context) {
         debug!("swapping contexts");
         let out_regs: &mut Registers = match out_context {
@@ -119,11 +118,38 @@ impl Context {
             rust_swap_registers(out_regs, in_regs)
         }
     }
+
+    /// Load the context and switch. This function will never return.
+    ///
+    /// It is equivalent to `Context::swap(&mut dummy_context, &to_context)`.
+    pub fn load(to_context: &Context) -> ! {
+        let regs: &Registers = &to_context.regs;
+
+        unsafe {
+            // Right before we switch to the new context, set the new context's
+            // stack limit in the OS-specified TLS slot. This also  means that
+            // we cannot call any more rust functions after record_stack_bounds
+            // returns because they would all likely fail due to the limit being
+            // invalid for the current task. Lucky for us `rust_swap_registers`
+            // is a C function so we don't have to worry about that!
+            //
+            match to_context.stack_bounds {
+                Some((lo, hi)) => sys::stack::record_rust_managed_stack_bounds(lo, hi),
+                // If we're going back to one of the original contexts or
+                // something that's possibly not a "normal task", then reset
+                // the stack limit to 0 to make morestack never fail
+                None => sys::stack::record_rust_managed_stack_bounds(0, usize::MAX),
+            }
+
+            rust_load_registers(regs);
+        }
+    }
 }
 
 //#[link(name = "ctxswtch", kind = "static")] this line will produce duplicated -lcxswtch and cause compile failure.
 extern {
     fn rust_swap_registers(out_regs: *mut Registers, in_regs: *const Registers);
+    fn rust_load_registers(in_regs: *const Registers) -> !;
 }
 
 // Register contexts used in various architectures
@@ -382,10 +408,9 @@ mod test {
 
         let ctx: &Context = unsafe { transmute(arg) };
 
-        let mut dummy = Context::empty();
-        Context::swap(&mut dummy, ctx);
-
-        unreachable!();
+        // let mut dummy = Context::empty();
+        // Context::swap(&mut dummy, ctx);
+        Context::load(ctx);
     }
 
     #[test]

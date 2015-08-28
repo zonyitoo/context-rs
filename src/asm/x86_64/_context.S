@@ -158,6 +158,60 @@ SWAP_REGISTERS:
         // found in regs:
         jmp *(RUSTRT_IP*8)(ARG1)
 
+#if defined(__APPLE__)
+#define LOAD_REGISTERS _rust_load_registers
+#else
+#define LOAD_REGISTERS rust_load_registers
+#endif
+
+// load_registers(registers_t *regs)
+.globl LOAD_REGISTERS
+LOAD_REGISTERS:
+    // Should be exactly the same as the code snippet above
+    // Restore non-volatile integer registers:
+    //   (including RSP)
+    mov (RUSTRT_RBX*8)(ARG0), %rbx
+    mov (RUSTRT_RSP*8)(ARG0), %rsp
+    mov (RUSTRT_RBP*8)(ARG0), %rbp
+    mov (RUSTRT_R12*8)(ARG0), %r12
+    mov (RUSTRT_R13*8)(ARG0), %r13
+    mov (RUSTRT_R14*8)(ARG0), %r14
+    mov (RUSTRT_R15*8)(ARG0), %r15
+
+#if defined(__MINGW32__) || defined(_WINDOWS)
+    mov (RUSTRT_RDI*8)(ARG0), %rdi
+    mov (RUSTRT_RSI*8)(ARG0), %rsi
+#endif
+
+    // Restore 0th argument register:
+    mov (RUSTRT_ARG0*8)(ARG0), ARG0
+
+    // Restore non-volatile XMM registers:
+#if defined(__MINGW32__) || defined(_WINDOWS)
+    movapd (RUSTRT_XMM6*8)(ARG0), %xmm6
+    movapd (RUSTRT_XMM7*8)(ARG0), %xmm7
+    movapd (RUSTRT_XMM8*8)(ARG0), %xmm8
+    movapd (RUSTRT_XMM9*8)(ARG0), %xmm9
+    movapd (RUSTRT_XMM10*8)(ARG0), %xmm10
+    movapd (RUSTRT_XMM11*8)(ARG0), %xmm11
+    movapd (RUSTRT_XMM12*8)(ARG0), %xmm12
+    movapd (RUSTRT_XMM13*8)(ARG0), %xmm13
+    movapd (RUSTRT_XMM14*8)(ARG0), %xmm14
+    movapd (RUSTRT_XMM15*8)(ARG0), %xmm15
+#else
+    movapd (RUSTRT_XMM0*8)(ARG0), %xmm0
+    movapd (RUSTRT_XMM1*8)(ARG0), %xmm1
+    movapd (RUSTRT_XMM2*8)(ARG0), %xmm2
+    movapd (RUSTRT_XMM3*8)(ARG0), %xmm3
+    movapd (RUSTRT_XMM4*8)(ARG0), %xmm4
+    movapd (RUSTRT_XMM5*8)(ARG0), %xmm5
+#endif
+
+    // Jump to the instruction pointer
+    // found in regs:
+    jmp *(RUSTRT_IP*8)(ARG0)
+
+
 // This function below, rust_bootstrap_green_task, is used to initialize a green
 // task. This code is the very first code that is run whenever a green task
 // starts. The only assumptions that this code makes is that it has a register

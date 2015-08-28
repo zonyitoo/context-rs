@@ -15,11 +15,13 @@
 #if defined(__APPLE__)
   #define SWAP_REGISTERS  _rust_swap_registers
   #define BOOTSTRAP_TASK  _rust_bootstrap_green_task
+  #define LOAD_REGISTERS  _rust_load_registers
 #else
   #define SWAP_REGISTERS  rust_swap_registers
   #define BOOTSTRAP_TASK  rust_bootstrap_green_task
+  #define LOAD_REGISTERS  rust_load_registers
 #endif
-        
+
 .globl SWAP_REGISTERS
 SWAP_REGISTERS:
 	str r0, [r0, #0]
@@ -56,6 +58,29 @@ SWAP_REGISTERS:
 	ldr lr, [r1, #56]
 
 	ldr r2, [r1, #64]
+	msr cpsr_cxsf, r2
+
+	mov pc, lr
+
+// load_registers(registers_t *regs)
+.globl LOAD_REGISTERS
+LOAD_REGISTERS:
+    ldr r0, [r0, #0]
+	ldr r3, [r0, #12]
+	ldr r4, [r0, #16]
+	ldr r5, [r0, #20]
+	ldr r6, [r0, #24]
+	ldr r7, [r0, #28]
+	ldr r8, [r0, #32]
+	ldr r9, [r0, #36]
+	ldr r10, [r0, #40]
+	ldr r11, [r0, #44]
+	ldr r12, [r0, #48]
+
+	ldr sp, [r0, #52]
+	ldr lr, [r0, #56]
+
+	ldr r2, [r0, #64]
 	msr cpsr_cxsf, r2
 
 	mov pc, lr

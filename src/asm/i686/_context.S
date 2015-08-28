@@ -63,3 +63,29 @@ SWAP_REGISTERS:
 
     // Return!
     jmp *48(%eax)
+
+#if defined(__APPLE__)
+#define LOAD_REGISTERS _rust_load_registers
+#else
+#define LOAD_REGISTERS rust_load_registers
+#endif
+
+// load_registers(registers_t *regs)
+.globl LOAD_REGISTERS
+LOAD_REGISTERS:
+    // restore the new context
+    movl 4(%esp), %eax
+
+    movl 4(%eax), %ebx
+    movl 16(%eax), %ebp
+    movl 20(%eax), %esi
+    movl 24(%eax), %edi
+    movl 28(%eax), %esp
+
+    // restore the flags
+    movl 44(%eax), %ecx
+    push %ecx
+    popf
+
+    // Return!
+    jmp *48(%eax)
