@@ -1,5 +1,5 @@
 #![allow(unused_features)]
-#![feature(asm, libc, rustc_private, page_size, core, alloc, rt, fnbox, box_raw)]
+#![feature(asm, rustc_private, rt, fnbox, box_raw)]
 
 #[macro_use]
 extern crate log;

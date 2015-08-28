@@ -1,4 +1,4 @@
-#![feature(libc, rt, fnbox, box_raw)]
+#![feature(rt, fnbox, box_raw)]
 
 extern crate context;
 extern crate libc;
