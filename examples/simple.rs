@@ -11,12 +11,17 @@ use context::{Context, Stack};
 
 extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
     // Transmute it back to the Box<Box<FnBox()>>
-    let func: Box<Box<FnBox()>> = unsafe {
-        Box::from_raw(f as *mut Box<FnBox()>)
-    };
+    {
+        let func: Box<Box<FnBox()>> = unsafe {
+            Box::from_raw(f as *mut Box<FnBox()>)
+        };
 
-    // Call it
-    func();
+        // Call it
+        func();
+
+        // The `func` must be destroyed here,
+        // or it will cause memory leak.
+    }
 
     // The argument is the context of the main function
     let ctx: &Context = unsafe { mem::transmute(arg) };

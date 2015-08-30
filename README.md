@@ -34,12 +34,17 @@ use context::{Context, Stack};
 
 extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
     // Transmute it back to the Box<Box<FnBox()>>
-    let func: Box<Box<FnBox()>> = unsafe {
-        Box::from_raw(f as *mut Box<FnBox()>)
-    };
+    {
+        let func: Box<Box<FnBox()>> = unsafe {
+            Box::from_raw(f as *mut Box<FnBox()>)
+        };
 
-    // Call it
-    func();
+        // Call it
+        func();
+
+        // The `func` must be destroyed here,
+        // or it will cause memory leak.
+    }
 
     // The argument is the context of the main function
     let ctx: &Context = unsafe { mem::transmute(arg) };
@@ -69,6 +74,13 @@ fn main() {
 Use `cargo run --example simple` to run this code snippet.
 
 ## Notices
+
+* You **have to** drop the boxed function inside the initialize function!!
+
+* The resources allocated inside the initialize function must be released before the last context switch.
+
+* If you **context switch** inside your callback function, if you decided not to come back,
+  you **must** release all your resources allocated inside your function.
 
 * This crate supports platforms in
 
