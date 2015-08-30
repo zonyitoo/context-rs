@@ -20,10 +20,9 @@ extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
 
     // The argument is the context of the main function
     let ctx: &Context = unsafe { mem::transmute(arg) };
-    let mut dummy = Context::empty();
-    Context::swap(&mut dummy, ctx);
 
-    unreachable!("Should not reach here!");
+    // Switch back to the main function and will never comeback here
+    Context::load(ctx);
 }
 
 fn main() {
@@ -35,6 +34,10 @@ fn main() {
         println!("Inside your function!");
     }), &mut stk);
 
+    println!("Before switch");
+
     // Switch!
     Context::swap(&mut cur, &ctx);
+
+    println!("Back to main function");
 }

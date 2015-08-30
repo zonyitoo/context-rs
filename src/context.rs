@@ -379,7 +379,7 @@ fn align_down(sp: *mut usize) -> *mut usize {
 
 // ptr::mut_offset is positive isizes only
 #[inline]
-pub fn mut_offset<T>(ptr: *mut T, count: isize) -> *mut T {
+fn mut_offset<T>(ptr: *mut T, count: isize) -> *mut T {
     // use std::mem::size_of;
     // (ptr as isize + count * (size_of::<T>() as isize)) as *mut T
     unsafe { ptr.offset(count) }
@@ -407,9 +407,6 @@ mod test {
         }
 
         let ctx: &Context = unsafe { transmute(arg) };
-
-        // let mut dummy = Context::empty();
-        // Context::swap(&mut dummy, ctx);
         Context::load(ctx);
     }
 
