@@ -15,14 +15,5 @@ log = "^0.3.1"
 
 [dependencies]
 memmap = "^0.1.0"
-#simd = { git = "https://github.com/huonw/simd" }
+simd = { git = "https://github.com/huonw/simd" }
 libc = "^0.1.10"
-
-[[bin]]
-name = "context"
-path = "src/main.rs"
-
-# The release profile, used for `cargo build --release`
-#[profile.release]
-#debug = true
-#debug-assertions = true
