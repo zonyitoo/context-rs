@@ -8,6 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// FIXME: Silence the warning for `Registers`
+#![allow(improper_ctypes)]
+
 use stack::Stack;
 use std::usize;
 #[cfg(target_arch = "x86_64")]
@@ -32,7 +35,7 @@ pub struct Context {
     stack_bounds: Option<(usize, usize)>,
 }
 
-pub type InitFn = extern "C" fn(usize, *mut libc::c_void); // first argument is task handle, second is thunk ptr
+pub type InitFn = extern "C" fn(usize, *mut libc::c_void) -> !; // first argument is task handle, second is thunk ptr
 
 impl Context {
     pub fn empty() -> Context {
@@ -132,7 +135,7 @@ impl Context {
     /// Load the context and switch. This function will never return.
     ///
     /// It is equivalent to `Context::swap(&mut dummy_context, &to_context)`.
-    pub fn load(to_context: &Context) {
+    pub fn load(to_context: &Context) -> ! {
         let regs: &Registers = &to_context.regs;
 
         unsafe {
@@ -160,7 +163,7 @@ impl Context {
 extern {
     fn rust_swap_registers(out_regs: *mut Registers, in_regs: *const Registers);
     fn rust_save_registers(out_regs: *mut Registers);
-    fn rust_load_registers(in_regs: *const Registers);
+    fn rust_load_registers(in_regs: *const Registers) -> !;
 }
 
 // Register contexts used in various architectures
@@ -409,7 +412,7 @@ mod test {
     use stack::Stack;
     use context::Context;
 
-    extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) {
+    extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
         let func: Box<Box<FnBox()>> = unsafe {
             Box::from_raw(f as *mut Box<FnBox()>)
         };

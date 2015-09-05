@@ -87,10 +87,59 @@ rust_swap_registers:
         nop
 .end rust_swap_registers
 
+.globl rust_save_registers
+.align 2
+.set nomips16
+.ent rust_save_registers
+    .set noreorder
+    .set nomacro
+    .set noat
+    sw $1, 1 * 4($4)
+    sw $2, 2 * 4($4)
+    sw $3, 3 * 4($4)
+    sw $4, 4 * 4($4)
+    sw $5, 5 * 4($4)
+    sw $6, 6 * 4($4)
+    sw $7, 7 * 4($4)
+
+    sw $8, 8 * 4($4)
+    sw $9, 9 * 4($4)
+    sw $10, 10 * 4($4)
+    sw $11, 11 * 4($4)
+    sw $12, 12 * 4($4)
+    sw $13, 13 * 4($4)
+    sw $14, 14 * 4($4)
+    sw $15, 15 * 4($4)
+
+    sw $16, 16 * 4($4)
+    sw $17, 17 * 4($4)
+    sw $18, 18 * 4($4)
+    sw $19, 19 * 4($4)
+    sw $20, 20 * 4($4)
+    sw $21, 21 * 4($4)
+    sw $22, 22 * 4($4)
+    sw $23, 23 * 4($4)
+
+    sw $24, 24 * 4($4)
+    sw $25, 25 * 4($4)
+    sw $26, 26 * 4($4)
+    sw $27, 27 * 4($4)
+    sw $28, 28 * 4($4)
+    sw $29, 29 * 4($4)
+    sw $30, 30 * 4($4)
+    sw $31, 31 * 4($4)
+
+    jr $31
+    nop
+.end rust_save_registers
+
 .globl rust_load_registers
 .align 2
 .set nomips16
 .ent rust_load_registers
+    .set noreorder
+    .set nomacro
+    .set noat
     lw $1, 1 * 4($4)
     lw $2, 2 * 4($4)
     lw $3, 3 * 4($4)

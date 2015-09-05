@@ -65,6 +65,35 @@ SWAP_REGISTERS:
     jmp *48(%eax)
 
 #if defined(__APPLE__)
+#define SAVE_REGISTERS _rust_save_registers
+#else
+#define SAVE_REGISTERS rust_save_registers
+#endif
+
+// save_registers(registers_t *regs)
+SAVE_REGISTERS:
+    // save the old context
+    movl 4(%esp), %eax
+    movl %ebx, 4(%eax)
+    movl %ebp, 16(%eax)
+    movl %esi, 20(%eax)
+    movl %edi, 24(%eax)
+
+    // save the flags
+    pushf
+    popl %ecx
+    movl %ecx, 44(%eax)
+
+    // save the return address as the instruction pointer
+    // and save the stack pointer of the caller
+    popl %ecx
+    movl %esp, 28(%eax)
+    movl %ecx, 48(%eax)
+    
+    // Return!
+    jmp *48(%eax)
+
+#if defined(__APPLE__)
 #define LOAD_REGISTERS _rust_load_registers
 #else
 #define LOAD_REGISTERS rust_load_registers

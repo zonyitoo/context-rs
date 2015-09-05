@@ -32,7 +32,7 @@ use std::boxed::FnBox;
 
 use context::{Context, Stack};
 
-extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
+extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) {
     // Transmute it back to the Box<Box<FnBox()>>
     {
         let func: Box<Box<FnBox()>> = unsafe {
@@ -51,6 +51,8 @@ extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
 
     // Switch back to the main function and will never comeback here
     Context::load(ctx);
+
+    unreachable!("Never reach here");
 }
 
 fn main() {
