@@ -32,7 +32,7 @@ pub struct Context {
     stack_bounds: Option<(usize, usize)>,
 }
 
-pub type InitFn = extern "C" fn(usize, *mut libc::c_void) -> !; // first argument is task handle, second is thunk ptr
+pub type InitFn = extern "C" fn(usize, *mut libc::c_void); // first argument is task handle, second is thunk ptr
 
 impl Context {
     pub fn empty() -> Context {
@@ -119,10 +119,20 @@ impl Context {
         }
     }
 
+    /// Save the current context.
+    #[inline(always)]
+    pub fn save(context: &mut Context) {
+        let regs: &mut Registers = &mut context.regs;
+
+        unsafe {
+            rust_save_registers(regs);
+        }
+    }
+
     /// Load the context and switch. This function will never return.
     ///
     /// It is equivalent to `Context::swap(&mut dummy_context, &to_context)`.
-    pub fn load(to_context: &Context) -> ! {
+    pub fn load(to_context: &Context) {
         let regs: &Registers = &to_context.regs;
 
         unsafe {
@@ -149,7 +159,8 @@ impl Context {
 //#[link(name = "ctxswtch", kind = "static")] this line will produce duplicated -lcxswtch and cause compile failure.
 extern {
     fn rust_swap_registers(out_regs: *mut Registers, in_regs: *const Registers);
-    fn rust_load_registers(in_regs: *const Registers) -> !;
+    fn rust_save_registers(out_regs: *mut Registers);
+    fn rust_load_registers(in_regs: *const Registers);
 }
 
 // Register contexts used in various architectures
@@ -398,7 +409,7 @@ mod test {
     use stack::Stack;
     use context::Context;
 
-    extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
+    extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) {
         let func: Box<Box<FnBox()>> = unsafe {
             Box::from_raw(f as *mut Box<FnBox()>)
         };
@@ -423,6 +434,29 @@ mod test {
         assert!(rx.try_recv().is_err());
 
         Context::swap(&mut cur, &ctx);
+
+        assert_eq!(rx.recv().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_load_save_context() {
+        let mut cur = Context::empty();
+        let (tx, rx) = channel();
+
+        let mut stk = Stack::new(min_stack());
+        let ctx = Context::new(init_fn, unsafe { transmute(&cur) }, Box::new(move|| {
+            tx.send(1).unwrap();
+        }), &mut stk);
+
+        assert!(rx.try_recv().is_err());
+
+        let mut _no_use = Box::new(true);
+
+        Context::save(&mut cur);
+        if *_no_use {
+            *_no_use = false;
+            Context::load(&ctx);
+        }
 
         assert_eq!(rx.recv().unwrap(), 1);
     }
