@@ -405,20 +405,19 @@ mod test {
 
     use std::mem::transmute;
     use std::sync::mpsc::channel;
-    use std::rt::util::min_stack;
-    use std::rt::unwind::try;
     use std::boxed::FnBox;
 
     use stack::Stack;
     use context::Context;
 
+    const MIN_STACK: usize = 2 * 1024 * 1024;
+
     extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
         let func: Box<Box<FnBox()>> = unsafe {
             Box::from_raw(f as *mut Box<FnBox()>)
         };
-        if let Err(cause) = unsafe { try(move|| func()) } {
-            error!("Panicked inside: {:?}", cause.downcast::<&str>());
-        }
+
+        func();
 
         let ctx: &Context = unsafe { transmute(arg) };
         Context::load(ctx);
@@ -431,7 +430,7 @@ mod test {
         let mut cur = Context::empty();
         let (tx, rx) = channel();
 
-        let mut stk = Stack::new(min_stack());
+        let mut stk = Stack::new(MIN_STACK);
         let ctx = Context::new(init_fn, unsafe { transmute(&cur) }, Box::new(move|| {
             tx.send(1).unwrap();
         }), &mut stk);
@@ -448,7 +447,7 @@ mod test {
         let mut cur = Context::empty();
         let (tx, rx) = channel();
 
-        let mut stk = Stack::new(min_stack());
+        let mut stk = Stack::new(MIN_STACK);
         let ctx = Context::new(init_fn, unsafe { transmute(&cur) }, Box::new(move|| {
             tx.send(1).unwrap();
         }), &mut stk);
