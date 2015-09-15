@@ -12,7 +12,6 @@ use std::ptr;
 use std::sync::atomic;
 use std::env;
 use std::fmt;
-use std::mem;
 
 use libc;
 
@@ -183,6 +182,8 @@ fn page_size() -> usize {
 
 #[cfg(windows)]
 fn page_size() -> usize {
+    use std::mem;
+
     unsafe {
         let mut info = mem::zeroed();
         libc::GetSystemInfo(&mut info);

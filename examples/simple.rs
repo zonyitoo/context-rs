@@ -1,13 +1,14 @@
-#![feature(rt, fnbox, box_raw)]
+#![feature(fnbox)]
 
 extern crate context;
 extern crate libc;
 
-use std::rt::util::min_stack;
 use std::mem;
 use std::boxed::FnBox;
 
 use context::{Context, Stack};
+
+const STACK_SIZE: usize = 2 * 1024 * 1024; // 2MB
 
 extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
     // Transmute it back to the Box<Box<FnBox()>>
@@ -36,7 +37,7 @@ fn main() {
     // Initialize an empty context
     let mut cur = Context::empty();
 
-    let mut stk = Stack::new(min_stack());
+    let mut stk = Stack::new(STACK_SIZE);
     let ctx = Context::new(init_fn, unsafe { mem::transmute(&cur) }, Box::new(move|| {
         println!("Inside your function!");
     }), &mut stk);

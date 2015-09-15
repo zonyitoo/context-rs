@@ -20,7 +20,7 @@
 //  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 //  DEALINGS IN THE SOFTWARE.
 
-#![feature(rt, fnbox, box_raw)]
+#![feature(catch_panic, fnbox)]
 extern crate context;
 extern crate libc;
 
@@ -30,9 +30,7 @@ use std::cell::UnsafeCell;
 use std::default::Default;
 use std::ops::DerefMut;
 use std::fmt;
-use std::rt::unwind::try;
-use std::rt::unwind::begin_unwind;
-use std::rt;
+use std::thread;
 use std::boxed::FnBox;
 use std::any::Any;
 
@@ -47,7 +45,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Options {
         Options {
-            stack_size: rt::min_stack(),
+            stack_size: 2 * 1024 * 1024,
             name: None,
         }
     }
@@ -122,7 +120,7 @@ impl<T> CoroutineImpl<T>
         Context::swap(&mut self.context, &self.parent);
 
         if let State::ForceUnwind = self.state {
-            begin_unwind(ForceUnwind, &(file!(), line!()));
+            panic!("Coroutine is going to be destroyed, unwinding stack ...");
         }
 
         match self.result.take() {
@@ -166,7 +164,7 @@ impl<T> CoroutineImpl<T>
     unsafe fn force_unwind(&mut self) {
         if let State::Running = self.state {
             self.state = State::ForceUnwind;
-            let _ = try(|| { let _ = self.resume(); });
+            let _ = self.resume();
         }
     }
 }
@@ -205,7 +203,7 @@ impl<T> Coroutine<T>
 {
     #[inline]
     pub fn spawn_opts<F>(f: F, opts: Options) -> Coroutine<T>
-        where F: FnOnce(CoroutineRef<T>)
+        where F: FnOnce(CoroutineRef<T>) + Send + 'static
     {
         let mut stack = STACK_POOL.with(|pool| unsafe {
             (&mut *pool.get()).take_stack(opts.stack_size)
@@ -234,7 +232,7 @@ impl<T> Coroutine<T>
         let wrapper = move|| -> ! {
             let ret = unsafe {
                 let puller_ref = puller_ref.clone();
-                try(|| {
+                thread::catch_panic(move|| {
                     let coro_ref: &mut CoroutineImpl<T> = &mut *puller_ref.coro;
                     coro_ref.state = State::Running;
                     f(puller_ref)
@@ -294,7 +292,7 @@ impl<T> Coroutine<T>
 
     #[inline]
     pub fn spawn<F>(f: F) -> Coroutine<T>
-        where F: FnOnce(CoroutineRef<T>)
+        where F: FnOnce(CoroutineRef<T>) + Send + 'static
     {
         Coroutine::spawn_opts(f, Default::default())
     }
@@ -342,6 +340,10 @@ impl<T> Clone for CoroutineRef<T>
 }
 
 unsafe impl<T> Send for CoroutineRef<T>
+    where T: Send,
+{}
+
+unsafe impl<T> Sync for CoroutineRef<T>
     where T: Send,
 {}
 
