@@ -12,6 +12,7 @@ use std::ptr;
 use std::sync::atomic;
 use std::env;
 use std::fmt;
+use std::mem;
 
 use libc;
 
