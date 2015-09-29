@@ -21,16 +21,10 @@ use simd;
 
 use sys;
 
-// FIXME #7761: Registers is boxed so that it is 16-byte aligned, for storing
-// SSE regs.  It would be marginally better not to do this. In C++ we
-// use an attribute on a struct.
-// FIXME #7761: It would be nice to define regs as `Box<Option<Registers>>`
-// since the registers are sometimes empty, but the discriminant would
-// then misalign the regs again.
 #[derive(Debug)]
 pub struct Context {
     /// Hold the registers while the task or scheduler is suspended
-    regs: Box<Registers>,
+    regs: Registers,
     /// Lower bound and upper bound for the stack
     stack_bounds: Option<(usize, usize)>,
 }
@@ -40,7 +34,7 @@ pub type InitFn = extern "C" fn(usize, *mut libc::c_void) -> !; // first argumen
 impl Context {
     pub fn empty() -> Context {
         Context {
-            regs: Box::new(Registers::new()),
+            regs: Registers::new(),
             stack_bounds: None,
         }
     }
