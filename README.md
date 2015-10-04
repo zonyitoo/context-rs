@@ -21,18 +21,19 @@ git = "https://github.com/zonyitoo/context-rs.git"
 ## Usage
 
 ```rust
-#![feature(rt, fnbox, box_raw)]
+#![feature(fnbox)]
 
 extern crate context;
 extern crate libc;
 
-use std::rt::util::min_stack;
 use std::mem;
 use std::boxed::FnBox;
 
 use context::{Context, Stack};
 
-extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) {
+const STACK_SIZE: usize = 2 * 1024 * 1024; // 2MB
+
+extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
     // Transmute it back to the Box<Box<FnBox()>>
     {
         let func: Box<Box<FnBox()>> = unsafe {
@@ -52,17 +53,20 @@ extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) {
     // Switch back to the main function and will never comeback here
     Context::load(ctx);
 
-    unreachable!("Never reach here");
+    unreachable!("Should never comeback");
 }
 
 fn main() {
     // Initialize an empty context
     let mut cur = Context::empty();
 
-    let mut stk = Stack::new(min_stack());
-    let ctx = Context::new(init_fn, unsafe { mem::transmute(&cur) }, Box::new(move|| {
+    let callback: Box<FnBox()> = Box::new(move|| {
         println!("Inside your function!");
-    }), &mut stk);
+    });
+
+    let mut stk = Stack::new(STACK_SIZE);
+    let ctx = Context::new(init_fn, unsafe { mem::transmute(&cur) },
+                           Box::into_raw(Box::new(callback)) as *mut libc::c_void, &mut stk);
 
     println!("Before switch");
 

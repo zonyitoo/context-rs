@@ -1,4 +1,4 @@
-#![feature(asm, rustc_private, fnbox)]
+#![feature(asm)]
 
 #[macro_use]
 extern crate log;

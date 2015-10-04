@@ -37,10 +37,13 @@ fn main() {
     // Initialize an empty context
     let mut cur = Context::empty();
 
-    let mut stk = Stack::new(STACK_SIZE);
-    let ctx = Context::new(init_fn, unsafe { mem::transmute(&cur) }, Box::new(move|| {
+    let callback: Box<FnBox()> = Box::new(move|| {
         println!("Inside your function!");
-    }), &mut stk);
+    });
+
+    let mut stk = Stack::new(STACK_SIZE);
+    let ctx = Context::new(init_fn, unsafe { mem::transmute(&cur) },
+                           Box::into_raw(Box::new(callback)) as *mut libc::c_void, &mut stk);
 
     println!("Before switch");
 

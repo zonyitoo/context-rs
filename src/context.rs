@@ -13,8 +13,6 @@
 
 use stack::Stack;
 use std::usize;
-#[cfg(target_arch = "x86_64")]
-use std::boxed::FnBox;
 
 use libc;
 use simd;
@@ -54,24 +52,19 @@ impl Context {
     /// FIXME: this is basically an awful the interface. The main reason for
     ///        this is to reduce the number of allocations made when a green
     ///        task is spawned as much as possible
-    pub fn new<'a, F>(init: InitFn, arg: usize, start: Box<F>, stack: &mut Stack) -> Context
-        where F: FnBox() + 'a
-    {
+    pub fn new(init: InitFn, arg: usize, start: *mut libc::c_void, stack: &mut Stack) -> Context {
         let mut ctx = Context::empty();
         ctx.init_with(init, arg, start, stack);
         ctx
     }
 
-    pub fn init_with<'a, F>(&mut self, init: InitFn, arg: usize, start: Box<F>, stack: &mut Stack)
-        where F: FnBox() + 'a
-    {
+    pub fn init_with(&mut self, init: InitFn, arg: usize, start: *mut libc::c_void, stack: &mut Stack) {
         let sp: *const usize = stack.end();
         let sp: *mut usize = sp as *mut usize;
         // Save and then immediately load the current context,
         // which we will then modify to call the given function when restored
 
-        let ptr: *mut Box<FnBox()> = Box::into_raw(Box::new(start));
-        initialize_call_frame(&mut self.regs, init, arg, ptr as *mut libc::c_void, sp);
+        initialize_call_frame(&mut self.regs, init, arg, start, sp);
 
         // Scheduler tasks don't have a stack in the "we allocated it" sense,
         // but rather they run on pthreads stacks. We have complete control over
@@ -404,8 +397,6 @@ mod test {
     use libc;
 
     use std::mem::transmute;
-    use std::sync::mpsc::channel;
-    use std::boxed::FnBox;
 
     use stack::Stack;
     use context::Context;
@@ -413,10 +404,9 @@ mod test {
     const MIN_STACK: usize = 2 * 1024 * 1024;
 
     extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
-        let func: Box<Box<FnBox()>> = unsafe {
-            Box::from_raw(f as *mut Box<FnBox()>)
+        let func: fn() = unsafe {
+            transmute(f)
         };
-
         func();
 
         let ctx: &Context = unsafe { transmute(arg) };
@@ -428,31 +418,23 @@ mod test {
     #[test]
     fn test_swap_context() {
         let mut cur = Context::empty();
-        let (tx, rx) = channel();
+
+        fn callback() {}
 
         let mut stk = Stack::new(MIN_STACK);
-        let ctx = Context::new(init_fn, unsafe { transmute(&cur) }, Box::new(move|| {
-            tx.send(1).unwrap();
-        }), &mut stk);
-
-        assert!(rx.try_recv().is_err());
+        let ctx = Context::new(init_fn, unsafe { transmute(&cur) }, unsafe { transmute(callback) }, &mut stk);
 
         Context::swap(&mut cur, &ctx);
-
-        assert_eq!(rx.recv().unwrap(), 1);
     }
 
     #[test]
     fn test_load_save_context() {
         let mut cur = Context::empty();
-        let (tx, rx) = channel();
+
+        fn callback() {}
 
         let mut stk = Stack::new(MIN_STACK);
-        let ctx = Context::new(init_fn, unsafe { transmute(&cur) }, Box::new(move|| {
-            tx.send(1).unwrap();
-        }), &mut stk);
-
-        assert!(rx.try_recv().is_err());
+        let ctx = Context::new(init_fn, unsafe { transmute(&cur) }, unsafe { transmute(callback) }, &mut stk);
 
         let mut _no_use = Box::new(true);
 
@@ -461,7 +443,5 @@ mod test {
             *_no_use = false;
             Context::load(&ctx);
         }
-
-        assert_eq!(rx.recv().unwrap(), 1);
     }
 }
