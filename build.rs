@@ -9,7 +9,7 @@ fn main() {
     let arch =
         if cfg!(target_arch = "x86_64") {
             "x86_64"
-        } else if cfg!(target_arch = "i686") {
+        } else if cfg!(target_arch = "x86") {
             "i686"
         } else if cfg!(target_arch = "arm") {
             "arm"

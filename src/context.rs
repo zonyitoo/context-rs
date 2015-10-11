@@ -15,6 +15,7 @@ use stack::Stack;
 use std::usize;
 
 use libc;
+#[cfg(target_arch = "x86_64")]
 use simd;
 
 use sys;
@@ -146,7 +147,7 @@ impl Context {
     }
 }
 
-//#[link(name = "ctxswtch", kind = "static")] this line will produce duplicated -lcxswtch and cause compile failure.
+#[link(name = "ctxswtch", kind = "static")]
 extern {
     fn rust_swap_registers(out_regs: *mut Registers, in_regs: *const Registers);
     fn rust_save_registers(out_regs: *mut Registers);
