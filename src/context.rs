@@ -147,7 +147,6 @@ impl Context {
     }
 }
 
-#[link(name = "ctxswtch", kind = "static")]
 extern {
     fn rust_swap_registers(out_regs: *mut Registers, in_regs: *const Registers);
     fn rust_save_registers(out_regs: *mut Registers);

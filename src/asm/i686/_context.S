@@ -64,7 +64,7 @@ SWAP_REGISTERS:
     // Return!
     jmp *48(%eax)
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
 #define SAVE_REGISTERS _rust_save_registers
 #else
 #define SAVE_REGISTERS rust_save_registers
@@ -89,11 +89,11 @@ SAVE_REGISTERS:
     popl %ecx
     movl %esp, 28(%eax)
     movl %ecx, 48(%eax)
-    
+
     // Return!
     jmp *48(%eax)
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_WIN32)
 #define LOAD_REGISTERS _rust_load_registers
 #else
 #define LOAD_REGISTERS rust_load_registers
