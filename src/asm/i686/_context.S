@@ -71,6 +71,7 @@ SWAP_REGISTERS:
 #endif
 
 // save_registers(registers_t *regs)
+.globl SAVE_REGISTERS
 SAVE_REGISTERS:
     // save the old context
     movl 4(%esp), %eax
