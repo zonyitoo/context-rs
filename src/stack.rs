@@ -42,16 +42,7 @@ impl Stack {
         // allocation failure, which would fail to spawn the task. But there's
         // not many sensible things to do on OOM.  Failure seems fine (and is
         // what the old stack allocation did).
-
-        let options =
-            if cfg!(all(not(windows), not(target_os = "freebsd"), not(target_os = "dragonfly"))) {
-                MmapOptions { stack: true }
-            } else if cfg!(any(target_os = "freebsd", target_os = "dragonfly")) {
-                MmapOptions { stack: false }
-            } else {
-                MmapOptions { stack: false }
-            };
-
+        let options = MmapOptions { stack: true };
         let stack = match Mmap::anonymous_with_options(size, Protection::ReadCopy, options) {
             Ok(map) => map,
             Err(e) => panic!("mmap for stack of size {} failed: {}", size, e)
