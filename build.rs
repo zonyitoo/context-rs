@@ -6,6 +6,12 @@ use std::env;
 const LIB_NAME: &'static str = "libctxswtch.a";
 
 fn main() {
+    // Use new layout on Linux x86_64
+    if cfg!(target_arch = "x86_64") && cfg!(target_os = "linux") {
+        println!("cargo:rustc-link-search=native=./lib");
+        return;
+    }
+    // Otherwise, use old binaries
     let arch =
         if cfg!(target_arch = "x86_64") {
             "x86_64"
