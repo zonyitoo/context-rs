@@ -1,6 +1,6 @@
 //! A simple coroutine implementation, based on underlying context
 use context::*;
-use stack::Stack;
+use stack::{ Stack, StackSlice };
 use std::cell::RefCell;
 
 pub struct Coroutine(Box<Frame>);
@@ -20,26 +20,30 @@ struct Frame {
 }
 
 impl Coroutine {
-    pub fn new<F>(stack: Stack, func: F) -> Coroutine
+    pub fn new<F>(mut stack: Stack, func: F) -> Coroutine
         where F: FnOnce(isize) -> isize, F: Send + 'static
     {
         use std::ptr;
         use std::mem::transmute;
-        unimplemented!();
-        
-        // TODO: replace with actual code
-        let stack_base: *mut () = ptr::null_mut();
-        let stack_size = 0usize;
-        let func_ptr  : *mut F  = ptr::null_mut();
-        // TODO: emplace onto stack
-        let frame = Frame {
-            context: Some( unsafe {
-                Context::new(stack_base, stack_size, thunk::<F>, transmute(func_ptr) )
-            } ),
-            stack:   stack,
+
+        let (base, size, frame_ptr, fn_ptr) = {
+            let mut slice = StackSlice::new(stack.as_mut_slice());
+
+            let frame_ptr = slice.alloc::<Frame>();
+            let fn_ptr    = slice.emplace(func);
+
+            let (base, size) = slice.into_ptr_size();
+            (base, size, frame_ptr, fn_ptr)
         };
 
-        Coroutine(Box::new(frame));
+        unsafe {
+            ptr::write(frame_ptr, Frame {
+                context: Some( Context::new(base, size, thunk::<F>, transmute(fn_ptr)) ),
+                stack:   stack,
+            });
+
+            Coroutine(Box::from_raw(frame_ptr))
+        }
     }
     /// Enter specified coroutine
     pub fn enter(&mut self, message: isize) -> isize {
@@ -80,7 +84,7 @@ impl Coroutine {
     /// Leave current running context
     pub fn leave(message: isize) -> isize {
         G_CONTEXT.with(|cell| {
-            use std::mem::{replace, swap, transmute};
+            use std::mem::{replace, transmute};
             // Y is previous frame
             // Z is current frame
             // 0. Ret = Some(Y0), Tmp = ???
