@@ -1,48 +1,35 @@
 //! A simple coroutine implementation, based on underlying context
-use context::*;
-use stack::{ Stack, StackSlice };
+use context::Context;
+use stack::Stack;
 use std::cell::RefCell;
 
-pub struct Coroutine(Box<Frame>);
+pub struct Coroutine {
+    context: Option<Context>,
+    stack:   Stack,
+}
 
 /// Defines return point for `Coroutine::leave`
 thread_local!(static G_CONTEXT: RefCell<Option<Context>> = RefCell::new(None) );
-/// Service structure which is located on coroutine stack and handles its state
-struct Frame {
-    /// Jump context
-    ///
-    /// When coroutine is active, represents return frame
-    /// When coroutine is suspended, represents jump-into address
-    context: Option<Context>,
-    /// Stack handle will be stored on stack itself
-    /// This strategy is for future use, when stack will become a trait
-    stack:   Stack,
-}
 
 impl Coroutine {
     pub fn new<F>(mut stack: Stack, func: F) -> Coroutine
         where F: FnOnce(isize) -> isize, F: Send + 'static
     {
-        use std::ptr;
         use std::mem::transmute;
 
-        let (base, size, frame_ptr, fn_ptr) = {
-            let mut slice = StackSlice::new(stack.as_mut_slice());
+        let mut slice = to_stack_slice(stack.as_mut_slice());
+        let fn_ptr    = emplace(&mut slice, func);
 
-            let frame_ptr = slice.alloc::<Frame>();
-            let fn_ptr    = slice.emplace(func);
-
-            let (base, size) = slice.into_ptr_size();
-            (base, size, frame_ptr, fn_ptr)
-        };
-
-        unsafe {
-            ptr::write(frame_ptr, Frame {
-                context: Some( Context::new(base, size, thunk::<F>, transmute(fn_ptr)) ),
-                stack:   stack,
-            });
-
-            Coroutine(Box::from_raw(frame_ptr))
+        Coroutine {
+            context: Some( unsafe {
+                Context::new(
+                    slice.0 as *mut (),
+                    slice.1,
+                    thunk::<F>,
+                    transmute(fn_ptr)
+                )
+            } ),
+            stack:   stack,
         }
     }
     /// Enter specified coroutine
@@ -52,17 +39,16 @@ impl Coroutine {
             // Y is current frame
             // Z is nested frame
             use std::mem::{replace, swap, transmute};
-            let mut frame = &mut self.0.context;
             // 0. Ret = Some(X0), Frame = Some(Z0), Tmp = ???
             // 1. Frame -> Tmp, Frame = None, Tmp = Z0
-            let tmp = replace(frame, None).unwrap();
+            let tmp = replace(&mut self.context, None).unwrap();
             // We need to deceive borrow checker here
             // Because following jump will stop
             // accessing storage before actual return
             let deceptive_ptr = {
                 let mut ret = cell.borrow_mut();
                 // 2. Ret <-> Frame, Ret = None, Frame = Some(X0)
-                swap(frame, &mut *ret);
+                swap(&mut self.context, &mut *ret);
                 &mut *ret as *mut _
             };
             // 3. jump!
@@ -76,7 +62,7 @@ impl Coroutine {
 
             // Now, we simply swap, and...
             // 1. Ret = Some(X0), Frame = Some(Z1)
-            swap(&mut *(cell.borrow_mut()), frame);
+            swap(&mut *(cell.borrow_mut()), &mut self.context);
             // finally, return
             result
         })
@@ -131,4 +117,74 @@ extern fn thunk<F>(message: isize, param: usize) -> !
         func(message)
     };
     Coroutine::abandon(response)
+}
+
+type StackSlice = (*mut u8, usize);
+
+fn to_stack_slice(slice: &mut [u8]) -> StackSlice {
+    let base = to_base_ptr(slice);
+    return (base, slice.len());
+
+    #[cfg(not(stack_grows_up))]
+    fn to_base_ptr(slice: &mut [u8]) -> *mut u8
+    {
+        let len = slice.len();
+        unsafe {
+            slice.as_mut_ptr().offset(len as isize)
+        }
+    }
+
+    #[cfg(stack_grows_up)]
+    fn to_base_ptr(slice: &mut [u8]) -> *mut u8
+    {
+        slice.as_mut_ptr()
+    }
+}
+
+fn emplace<T>(slice: &mut StackSlice, value: T) -> *mut T {
+    use std::ptr;
+
+    let ptr = alloc_val(slice, &value);
+    unsafe {
+        ptr::write(ptr, value);
+    }
+    ptr
+}
+
+fn alloc_val<T>(slice: &mut StackSlice, _val: &T) -> *mut T {
+    alloc(slice)
+}
+
+fn alloc<T>(slice: &mut StackSlice) -> *mut T {
+    use std::mem;
+    // we'll need these to place T properly
+    let size  = mem::size_of::<T>();
+    let align = mem::align_of::<T>();
+
+    return aligned(slice, size, align) as *mut T;
+
+    // advances stack base with raw offset
+    fn advance_raw(slice: &mut StackSlice, bytes: isize) {
+        let size = bytes as usize;
+        assert!(slice.1 >= size);
+        unsafe { slice.0 = slice.0.offset(bytes); }
+        slice.1 -= size;
+    }
+
+    #[cfg(not(stack_grows_up))]
+    fn aligned(slice: &mut StackSlice, size: usize, align: usize) -> *mut () {
+        use std::mem::transmute;
+        // 1. Allocate enough
+        advance_raw(slice, -(size as isize));
+        // 2a. Compute align diff, down
+        let pt: usize = unsafe { transmute(slice.0) };
+        let delta = pt % align;
+        // 2b. Align stack to this boundary
+        advance_raw(slice, -(delta as isize));
+        slice.0 as *mut ()
+    }
+    #[cfg(stack_grows_up)]
+    fn aligned(slice: &mut StackSlice, size: usize, align: usize) -> *mut () {
+        unimplemented!()
+    }
 }

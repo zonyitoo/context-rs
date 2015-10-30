@@ -12,89 +12,10 @@ use std::ptr;
 use std::sync::atomic;
 use std::env;
 use std::fmt;
-use std::marker::PhantomData;
 
 use libc;
 
 use memmap::{Mmap, MmapOptions, Protection};
-
-/// Abstraction above concrete stack storage
-///
-/// Provides emplace facilities and the like
-pub struct StackSlice<'a>(*mut u8, usize, PhantomData<&'a [u8]>);
-
-impl<'a> StackSlice<'a> {
-    // Construct new StackSlice from arbitrary byte slice
-    pub fn new(slice: &'a mut [u8]) -> StackSlice<'a> {
-        let base = to_base_ptr(slice);
-        return StackSlice(base, slice.len(), PhantomData::<&'a [u8]>);
-
-        #[cfg(not(stack_grows_up))]
-        fn to_base_ptr(slice: &mut [u8]) -> *mut u8
-        {
-            let len = slice.len();
-            unsafe {
-                slice.as_mut_ptr().offset(len as isize)
-            }
-        }
-
-        #[cfg(stack_grows_up)]
-        fn to_base_ptr(slice: &mut [u8]) -> *mut u8
-        {
-            slice.as_mut_ptr()
-        }
-    }
-
-    pub fn into_ptr_size(self) -> (*mut (), usize) {
-        (self.0 as *mut (), self.1)
-    }
-
-    pub fn emplace<T>(&mut self, value: T) -> *mut T {
-        let ptr = self.alloc_val(&value);
-        unsafe {
-            ptr::write(ptr, value);
-        }
-        ptr
-    }
-
-    pub fn alloc_val<T>(&mut self, _val: &T) -> *mut T {
-        self.alloc::<T>()
-    }
-
-    pub fn alloc<T>(&mut self) -> *mut T {
-        use std::mem;
-        // we'll need these to place T properly
-        let size  = mem::size_of::<T>();
-        let align = mem::align_of::<T>();
-
-        return aligned(self, size, align) as *mut T;
-
-        // advances stack base with raw offset
-        fn advance_raw<'a>(slice: &mut StackSlice<'a>, bytes: isize) {
-            let size = bytes as usize;
-            assert!(slice.1 >= size);
-            unsafe { slice.0 = slice.0.offset(bytes); }
-            slice.1 -= size;
-        }
-
-        #[cfg(not(stack_grows_up))]
-        fn aligned<'a>(slice: &mut StackSlice<'a>, size: usize, align: usize) -> *mut () {
-            use std::mem::transmute;
-            // 1. Allocate enough
-            advance_raw(slice, -(size as isize));
-            // 2a. Compute align diff, down
-            let pt: usize = unsafe { transmute(slice.0) };
-            let delta = pt % align;
-            // 2b. Align stack to this boundary
-            advance_raw(slice, -(delta as isize));
-            slice.0 as *mut ()
-        }
-        #[cfg(stack_grows_up)]
-        fn aligned<'a>(slice: &mut StackSlice<'a>, size: usize, align: usize) -> *mut () {
-            unimplemented!()
-        }
-    }
-}
 
 /// A task's stack. The name "Stack" is a vestige of segmented stacks.
 pub struct Stack {
