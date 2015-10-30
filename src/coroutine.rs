@@ -1,9 +1,7 @@
 //! A simple coroutine implementation, based on underlying context
 use context::*;
 use stack::Stack;
-
 use std::cell::RefCell;
-use std::thread;
 
 pub struct Coroutine(Box<Frame>);
 
@@ -33,7 +31,7 @@ impl Coroutine {
         let stack_base: *mut () = ptr::null_mut();
         let stack_size = 0usize;
         let func_ptr  : *mut F  = ptr::null_mut();
-        
+        // TODO: emplace onto stack
         let frame = Frame {
             context: Some( unsafe {
                 Context::new(stack_base, stack_size, thunk::<F>, transmute(func_ptr) )
@@ -45,15 +43,15 @@ impl Coroutine {
     }
     /// Enter specified coroutine
     pub fn enter(&mut self, message: isize) -> isize {
-        // X is previous frame
-        // Y is current frame
-        // Z is nested frame
-        use std::mem::{replace, swap, transmute};
-        let mut frame = &mut self.0.context;
-        // 0. Ret = Some(X0), Frame = Some(Z0), Tmp = ???
-        // 1. Frame -> Tmp, Frame = None, Tmp = Z0
-        let tmp = replace(frame, None).unwrap();
         G_CONTEXT.with(|cell| {
+            // X is previous frame
+            // Y is current frame
+            // Z is nested frame
+            use std::mem::{replace, swap, transmute};
+            let mut frame = &mut self.0.context;
+            // 0. Ret = Some(X0), Frame = Some(Z0), Tmp = ???
+            // 1. Frame -> Tmp, Frame = None, Tmp = Z0
+            let tmp = replace(frame, None).unwrap();
             // We need to deceive borrow checker here
             // Because following jump will stop
             // accessing storage before actual return
@@ -81,11 +79,40 @@ impl Coroutine {
     }
     /// Leave current running context
     pub fn leave(message: isize) -> isize {
-        unimplemented!()
+        G_CONTEXT.with(|cell| {
+            use std::mem::{replace, swap, transmute};
+            // Y is previous frame
+            // Z is current frame
+            // 0. Ret = Some(Y0), Tmp = ???
+            let (deceptive_ptr, tmp) = {
+                let mut ret = cell.borrow_mut();
+                // 1. Ret -> Y0, Ret = None
+                let returner = replace(&mut *ret, None).unwrap();
+                (&mut *ret as *mut _, returner)
+            };
+            // 1. Ret = None, Tmp = Y0
+            // Jump! then, Ret = Some(Z0), Tmp = ???
+            tmp.jump(unsafe { transmute(deceptive_ptr) }, message)
+            // POST: we came here after calling 'enter'
+            // 0. Ret = Some(Y1), we don't need to do anything explicitly
+        })
     }
-    /// Invoked at the end of coroutine to leave it without storing return frame for later use
+    // Invoked at the end of coroutine to leave it without storing return frame for later use
     fn abandon(message: isize) -> ! {
-        unimplemented!()
+        G_CONTEXT.with(|cell| {
+            use std::mem::replace;
+            // Y is previous frame
+            // Z is current frame
+            // 0. Ret = Some(Y0), Tmp = ???
+            // 1. Ret = None, Tmp = Y0
+            let tmp = replace(&mut *(cell.borrow_mut()), None).unwrap();
+            // 1. Ret = None, Tmp = Y0
+            // Jump into! then, Ret = None, Tmp = ???, and there's no return
+            unsafe {
+                tmp.jump_into(message)
+            }
+        });
+        unreachable!()
     }
 }
 

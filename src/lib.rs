@@ -8,4 +8,4 @@ pub use stack::Stack;
 
 pub mod context;
 pub mod stack;
-mod coroutine;
+pub mod coroutine;

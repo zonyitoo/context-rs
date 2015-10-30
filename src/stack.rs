@@ -12,10 +12,38 @@ use std::ptr;
 use std::sync::atomic;
 use std::env;
 use std::fmt;
+use std::marker::PhantomData;
 
 use libc;
 
 use memmap::{Mmap, MmapOptions, Protection};
+
+/// Abstraction above concrete stack storage
+///
+/// Provides emplace facilities and the like
+struct StackSlice<'a>(*mut u8, usize, PhantomData<&'a [u8]>);
+
+impl<'a> StackSlice<'a> {
+    fn new(slice: &'a mut [u8]) -> StackSlice<'a> {
+        let base = to_base_ptr(slice);
+        StackSlice(base, slice.len(), PhantomData::<&'a [u8]>)
+    }
+}
+
+#[cfg(not(stack_grows_up))]
+fn to_base_ptr(slice: &mut [u8]) -> *mut u8
+{
+    let len = slice.len();
+    unsafe {
+        slice.as_mut_ptr().offset(len as isize)
+    }
+}
+
+#[cfg(stack_grows_up)]
+fn to_base_ptr(slice: &mut [u8]) -> *mut u8
+{
+    slice.as_mut_ptr()
+}
 
 /// A task's stack. The name "Stack" is a vestige of segmented stacks.
 pub struct Stack {
