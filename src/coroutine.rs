@@ -48,7 +48,7 @@ impl<T: Stack> Coroutine<T> {
         self.context.is_none()
     }
     /// Enter specified coroutine
-    pub fn enter(&mut self, message: isize) -> isize {
+    pub fn run(&mut self, message: isize) -> isize {
         G_CONTEXT.with(|cell| {
             // X is previous frame
             // Y is current frame
@@ -84,7 +84,7 @@ impl<T: Stack> Coroutine<T> {
     }
 }
 /// Leave current running coroutine
-pub fn leave(message: isize) -> isize {
+pub fn suspend(message: isize) -> isize {
     G_CONTEXT.with(|cell| {
         use std::mem::{replace, transmute};
         // Y is previous frame
@@ -219,7 +219,7 @@ mod test {
             }
         );
 
-        let r1 = coro.enter(11);
+        let r1 = coro.run(11);
         
         assert_eq!(r1, 53);
         assert!(coro.is_finished());
@@ -228,26 +228,26 @@ mod test {
     #[test]
     fn suspend_test() {
         use stack::ScopedStack;
-        use coroutine::{Coroutine, leave};
+        use coroutine::{Coroutine, suspend};
 
         let mut buf  = [0u8; 8192];
         let mut coro = Coroutine::new(
             ScopedStack::new(&mut buf),
             |m| {
-                let m = leave(m + 13);
+                let m = suspend(m + 13);
                 m + 42
             }
         );
 
-        assert_eq!(coro.enter(-9), 4);
-        assert_eq!(coro.enter(-2), 40);
+        assert_eq!(coro.run(-9), 4);
+        assert_eq!(coro.run(-2), 40);
         assert!(coro.is_finished());
     }
 
     #[test]
     fn boxed_memory() {
         use stack::ScopedStack;
-        use coroutine::{Coroutine, leave};
+        use coroutine::{Coroutine, suspend};
         // Coroutine's func must be sendable,
         // so we're forced to Arc here
         // Not a bing problem since we're not pursuing top perf
@@ -264,12 +264,14 @@ mod test {
                 while m != 0 {
                     m *= 2;
                     (*cell2).fetch_add(m, Ordering::Relaxed);
-                    m = leave(m);
+                    m = suspend(m);
                 }
                 0
             }
         );
 
-        coro.enter(0);
+        coro.run(0);
+
+        assert!(coro.is_finished());
     }
 }
