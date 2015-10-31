@@ -89,7 +89,6 @@ extern {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::mem;
 
     #[cfg(not(stack_grows_up))]
     fn base(slice: &mut[u8]) -> (*mut (), usize) {

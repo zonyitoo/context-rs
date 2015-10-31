@@ -3,7 +3,6 @@ extern crate log;
 extern crate libc;
 extern crate memmap;
 
-pub use context::*;
 pub use stack::Stack;
 
 pub mod context;
