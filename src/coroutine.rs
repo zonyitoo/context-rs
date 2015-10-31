@@ -180,7 +180,7 @@ fn alloc<T>(slice: &mut StackSlice) -> *mut T {
 
     // advances stack base with raw offset
     fn advance_raw(slice: &mut StackSlice, bytes: isize) {
-        let size = bytes as usize;
+        let size = bytes.abs() as usize;
         assert!(slice.1 >= size);
         unsafe { slice.0 = slice.0.offset(bytes); }
         slice.1 -= size;
@@ -214,8 +214,8 @@ mod test {
 
         let mut coro = Coroutine::new(
             ScopedStack::new(&mut buffer),
-            |_m| {
-                _m + 42
+            |m| {
+                m + 42
             }
         );
 
@@ -223,5 +223,53 @@ mod test {
         
         assert_eq!(r1, 53);
         assert!(coro.is_finished());
+    }
+
+    #[test]
+    fn suspend_test() {
+        use stack::ScopedStack;
+        use coroutine::{Coroutine, leave};
+
+        let mut buf  = [0u8; 8192];
+        let mut coro = Coroutine::new(
+            ScopedStack::new(&mut buf),
+            |m| {
+                let m = leave(m + 13);
+                m + 42
+            }
+        );
+
+        assert_eq!(coro.enter(-9), 4);
+        assert_eq!(coro.enter(-2), 40);
+        assert!(coro.is_finished());
+    }
+
+    #[test]
+    fn boxed_memory() {
+        use stack::ScopedStack;
+        use coroutine::{Coroutine, leave};
+        // Coroutine's func must be sendable,
+        // so we're forced to Arc here
+        // Not a bing problem since we're not pursuing top perf
+        use std::sync::Arc;
+        use std::sync::atomic::{ AtomicIsize, Ordering };
+
+        let cell    = Arc::new(AtomicIsize::new(0));
+        let cell2   = cell.clone();
+        let mut buf = [0u8; 8192];
+
+        let mut coro = Coroutine::new(
+            ScopedStack::new(&mut buf),
+            move |mut m| {
+                while m != 0 {
+                    m *= 2;
+                    (*cell2).fetch_add(m, Ordering::Relaxed);
+                    m = leave(m);
+                }
+                0
+            }
+        );
+
+        coro.enter(0);
     }
 }
