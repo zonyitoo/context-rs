@@ -1,15 +1,12 @@
 //! A simple coroutine implementation, based on underlying context
 use context::Context;
 use stack::Stack;
-use std::cell::RefCell;
+use std::cell::UnsafeCell;
 
 pub struct Coroutine<T: Stack> {
     context: Option<Context>,
     stack:   T,
 }
-
-/// Defines return point for `Coroutine::leave`
-thread_local!(static G_CONTEXT: RefCell<Option<Context>> = RefCell::new(None) );
 
 impl<T: Stack> Coroutine<T> {
     pub fn new<F>(mut stack: T, func: F) -> Coroutine<T>
@@ -49,27 +46,20 @@ impl<T: Stack> Coroutine<T> {
     }
     /// Enter specified coroutine
     pub fn run(&mut self, message: isize) -> isize {
-        G_CONTEXT.with(|cell| {
+        with_returner(|ret| {
             // X is previous frame
             // Y is current frame
             // Z is nested frame
-            use std::mem::{replace, swap, transmute};
+            use std::mem::{replace, swap};
             // 0. Ret = Some(X0), Frame = Some(Z0), Tmp = ???
             // 1. Frame -> Tmp, Frame = None, Tmp = Z0
             let tmp = replace(&mut self.context, None).unwrap();
-            // We need to deceive borrow checker here
-            // Because following jump will stop
-            // accessing storage before actual return
-            let deceptive_ptr = {
-                let mut ret = cell.borrow_mut();
-                // 2. Ret <-> Frame, Ret = None, Frame = Some(X0)
-                swap(&mut self.context, &mut *ret);
-                &mut *ret as *mut _
-            };
+            // 2. Ret <-> Frame, Ret = None, Frame = Some(X0)
+            swap(&mut self.context, ret);
             // 3. jump!
             // Ret = Some(Y0), Frame = Some(X0), Tmp = ???
             // Executing this, we end in leave's POST chunk
-            let result = tmp.jump(unsafe { transmute(deceptive_ptr) }, message);
+            let result = tmp.jump(ret, message);
             // POST: we come here after invoking 'leave' on the other side
             // and we need to revert everything
             // frame cell is used to return new frame context
@@ -77,7 +67,7 @@ impl<T: Stack> Coroutine<T> {
 
             // Now, we simply swap, and...
             // 1. Ret = Some(X0), Frame = Some(Z1)
-            swap(&mut *(cell.borrow_mut()), &mut self.context);
+            swap(ret, &mut self.context);
             // finally, return
             result
         })
@@ -85,40 +75,55 @@ impl<T: Stack> Coroutine<T> {
 }
 /// Leave current running coroutine
 pub fn suspend(message: isize) -> isize {
-    G_CONTEXT.with(|cell| {
-        use std::mem::{replace, transmute};
+    with_returner(|ret| {
+        use std::mem::{replace};
         // Y is previous frame
         // Z is current frame
         // 0. Ret = Some(Y0), Tmp = ???
-        let (deceptive_ptr, tmp) = {
-            let mut ret = cell.borrow_mut();
-            // 1. Ret -> Y0, Ret = None
-            let returner = replace(&mut *ret, None).unwrap();
-            (&mut *ret as *mut _, returner)
-        };
+        // 1. Ret -> Y0, Ret = None
+        let tmp = replace(ret, None).unwrap();
         // 1. Ret = None, Tmp = Y0
         // Jump! then, Ret = Some(Z0), Tmp = ???
-        tmp.jump(unsafe { transmute(deceptive_ptr) }, message)
+        tmp.jump(ret, message)
         // POST: we came here after calling 'enter'
         // 0. Ret = Some(Y1), we don't need to do anything explicitly
     })
 }
 /// Invoked at the end of coroutine to leave it without storing return frame for later use
 fn abandon(message: isize) -> ! {
-    G_CONTEXT.with(|cell| {
+    with_returner(|ret| {
         use std::mem::replace;
         // Y is previous frame
         // Z is current frame
         // 0. Ret = Some(Y0), Tmp = ???
         // 1. Ret = None, Tmp = Y0
-        let tmp = replace(&mut *(cell.borrow_mut()), None).unwrap();
+        let tmp = replace(ret, None).unwrap();
         // 1. Ret = None, Tmp = Y0
         // Jump into! then, Ret = None, Tmp = ???, and there's no return
         unsafe {
-            tmp.jump_into(message)
+            tmp.jump_into(message);
         }
     });
     unreachable!()
+}
+
+// Eases access to thread-local returner context cell
+// Relies basically on the fact that we cannot migrate coroutine
+// to other thread while we run it
+// For suspend and abandon, deceptive_ref is used only till jump call
+// For run, we basically hold coroutine pinned via &mut reference
+//
+// So yes, it dedupes code.
+// And yes, it will break your program and eat your laundry, if misused!
+fn with_returner<F: FnOnce(&mut Option<Context>) -> R, R>(lambda: F) -> R {
+    // Defines return point for `Coroutine::leave`
+    thread_local!(static RETURNER: UnsafeCell<Option<Context>> = UnsafeCell::new(None) );
+    // Run lambda 
+    RETURNER.with(|cell| {
+        use std::mem::transmute;
+        let deceptive_ref: &mut Option<Context> = unsafe { transmute(cell.get()) };
+        lambda(deceptive_ref)
+    })
 }
 
 extern fn thunk<F>(message: isize, param: usize) -> !
