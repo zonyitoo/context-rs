@@ -8,7 +8,7 @@ fn main() {
             panic!("unsupported platform")
         };
 
-    println!("cargo:rustc-link-search=native=./lib");
+    println!("cargo:rustc-link-search=native=lib");
     println!("cargo:rustc-link-lib=static=context-{0}", platform);
     if stack_grows_up {
         println!("cargo:rustc-cfg=stack_grows_up");
