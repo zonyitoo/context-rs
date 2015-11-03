@@ -11,6 +11,8 @@ use std::mem;
 /// can be reached only once
 pub struct Context(*const ());
 
+unsafe impl Send for Context {}
+
 impl Context {
     /// Constructs new initialized context handle
     ///
