@@ -55,7 +55,6 @@ pub mod stack {
     pub unsafe fn record_sp_limit(limit: usize) {
         return target_record_sp_limit(limit);
 
-        // x86-64
         #[cfg(all(target_arch = "x86_64",
                   any(target_os = "macos", target_os = "ios")))]
         #[inline(always)]
@@ -80,7 +79,6 @@ pub mod stack {
             asm!("movq $0, %fs:32" :: "r"(limit) :: "volatile")
         }
 
-        // x86
         #[cfg(all(target_arch = "x86",
                   any(target_os = "macos", target_os = "ios")))]
         #[inline(always)]
@@ -88,8 +86,7 @@ pub mod stack {
             asm!("movl $$0x48+90*4, %eax
                   movl $0, %gs:(%eax)" :: "r"(limit) : "eax" : "volatile")
         }
-        #[cfg(all(target_arch = "x86",
-                  any(target_os = "linux", target_os = "freebsd")))]
+        #[cfg(all(target_arch = "x86", target_os = "linux"))]
         #[inline(always)]
         unsafe fn target_record_sp_limit(limit: usize) {
             asm!("movl $0, %gs:48" :: "r"(limit) :: "volatile")
@@ -98,8 +95,8 @@ pub mod stack {
         unsafe fn target_record_sp_limit(_: usize) {
         }
 
-        // mips, arm - Some brave soul can port these to inline asm, but it's over
-        //             my head personally
+        // mips, arm - The implementations are a bit big for inline asm!
+        //             They can be found in src/rt/arch/$target_arch/record_sp.S
         #[cfg(any(target_arch = "mips",
                   target_arch = "mipsel",
                   all(target_arch = "arm", not(target_os = "ios"))))]
@@ -115,11 +112,14 @@ pub mod stack {
         // aarch64 - FIXME(AARCH64): missing...
         // powerpc - FIXME(POWERPC): missing...
         // arm-ios - iOS segmented stack is disabled for now, see related notes
-        // openbsd - segmented stack is disabled
+        // openbsd/bitrig/netbsd - no segmented stacks.
+        // x86-freebsd - no segmented stacks.
         #[cfg(any(target_arch = "aarch64",
                   target_arch = "powerpc",
                   all(target_arch = "arm", target_os = "ios"),
+                  all(target_arch = "x86", target_os = "freebsd"),
                   target_os = "bitrig",
+                  target_os = "netbsd",
                   target_os = "openbsd"))]
         unsafe fn target_record_sp_limit(_: usize) {
         }
@@ -137,7 +137,6 @@ pub mod stack {
     pub unsafe fn get_sp_limit() -> usize {
         return target_get_sp_limit();
 
-        // x86-64
         #[cfg(all(target_arch = "x86_64",
                   any(target_os = "macos", target_os = "ios")))]
         #[inline(always)]
@@ -171,7 +170,6 @@ pub mod stack {
             return limit;
         }
 
-        // x86
         #[cfg(all(target_arch = "x86",
                   any(target_os = "macos", target_os = "ios")))]
         #[inline(always)]
@@ -181,8 +179,7 @@ pub mod stack {
                   movl %gs:(%eax), $0" : "=r"(limit) :: "eax" : "volatile");
             return limit;
         }
-        #[cfg(all(target_arch = "x86",
-                  any(target_os = "linux", target_os = "freebsd")))]
+        #[cfg(all(target_arch = "x86", target_os = "linux"))]
         #[inline(always)]
         unsafe fn target_get_sp_limit() -> usize {
             let limit;
@@ -194,8 +191,8 @@ pub mod stack {
             return 1024;
         }
 
-        // mips, arm - Some brave soul can port these to inline asm, but it's over
-        //             my head personally
+        // mips, arm - The implementations are a bit big for inline asm!
+        //             They can be found in src/rt/arch/$target_arch/record_sp.S
         #[cfg(any(target_arch = "mips",
                   target_arch = "mipsel",
                   all(target_arch = "arm", not(target_os = "ios"))))]
@@ -210,15 +207,18 @@ pub mod stack {
 
         // aarch64 - FIXME(AARCH64): missing...
         // powerpc - FIXME(POWERPC): missing...
-        // arm-ios - iOS doesn't support segmented stacks yet.
-        // openbsd - OpenBSD doesn't support segmented stacks.
+        // arm-ios - no segmented stacks.
+        // openbsd/bitrig/netbsd - no segmented stacks.
+        // x86-freebsd - no segmented stacks..
         //
         // This function might be called by runtime though
         // so it is unsafe to unreachable, let's return a fixed constant.
         #[cfg(any(target_arch = "aarch64",
                   target_arch = "powerpc",
                   all(target_arch = "arm", target_os = "ios"),
+                  all(target_arch = "x86", target_os = "freebsd"),
                   target_os = "bitrig",
+                  target_os = "netbsd",
                   target_os = "openbsd"))]
         #[inline(always)]
         unsafe fn target_get_sp_limit() -> usize {
