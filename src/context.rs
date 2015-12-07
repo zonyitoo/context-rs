@@ -123,7 +123,7 @@ impl Context {
     /// Load the context and switch. This function will never return.
     ///
     /// It is equivalent to `Context::swap(&mut dummy_context, &to_context)`.
-    pub fn load(to_context: &Context) {
+    pub fn load(to_context: &Context) -> ! {
         let regs: &Registers = &to_context.regs;
 
         unsafe {
@@ -405,8 +405,6 @@ mod test {
 
         let ctx: &Context = unsafe { transmute(arg) };
         Context::load(ctx);
-
-        unreachable!("Should not come to here");
     }
 
     #[test]

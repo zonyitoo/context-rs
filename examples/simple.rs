@@ -29,8 +29,6 @@ extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
 
     // Switch back to the main function and will never comeback here
     Context::load(ctx);
-
-    unreachable!("Should never comeback");
 }
 
 fn main() {

@@ -84,7 +84,6 @@ enum State {
     ForceUnwind,
 }
 
-#[allow(raw_pointer_derive)]
 #[derive(Debug)]
 struct CoroutineImpl<T = ()>
     where T: Send
