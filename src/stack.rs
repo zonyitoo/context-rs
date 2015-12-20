@@ -12,6 +12,7 @@ use std::ptr;
 use std::sync::atomic;
 use std::env;
 use std::fmt;
+use std::io;
 
 use libc;
 
@@ -37,7 +38,7 @@ impl fmt::Debug for Stack {
 impl Stack {
     /// Allocate a new stack of `size`. If size = 0, this will fail. Use
     /// `dummy_stack` if you want a zero-sized stack.
-    pub fn new(size: usize) -> Stack {
+    pub fn new(size: usize) -> Result<Stack, StackError> {
         // Map in a stack. Eventually we might be able to handle stack
         // allocation failure, which would fail to spawn the task. But there's
         // not many sensible things to do on OOM.  Failure seems fine (and is
@@ -45,7 +46,7 @@ impl Stack {
         let options = MmapOptions { stack: true };
         let stack = match Mmap::anonymous_with_options(size, Protection::ReadCopy, options) {
             Ok(map) => map,
-            Err(e) => panic!("mmap for stack of size {} failed: {}", size, e)
+            Err(e) => return Err(StackError::MmapError(e)),
         };
 
         // Change the last page to be inaccessible. This is to provide safety;
@@ -53,18 +54,24 @@ impl Stack {
         // page. It isn't guaranteed, but that's why FFI is unsafe. buf.data is
         // guaranteed to be aligned properly.
         if !protect_last_page(&stack) {
-            panic!("Could not memory-protect guard page. stack={:?}",
-                  stack.ptr());
-        }
+            error!("Could not memory-protect guard page. stack={:?}",
+                   stack.ptr());
 
-        Stack {
-            buf: Some(stack),
-            min_size: size,
+            Err(StackError::MProtectError(MProtectError {
+                stack: Stack {
+                    buf: Some(stack),
+                    min_size: size,
+                },
+            }))
+        } else {
+            Ok(Stack {
+                buf: Some(stack),
+                min_size: size,
+            })
         }
     }
 
     /// Create a 0-length stack which starts (and ends) at 0.
-    #[allow(dead_code)]
     pub unsafe fn dummy_stack() -> Stack {
         Stack {
             buf: None,
@@ -72,14 +79,15 @@ impl Stack {
         }
     }
 
-    #[allow(dead_code)]
+    /// Return the address of the guard page
     pub fn guard(&self) -> *const usize {
         (self.start() as usize + page_size()) as *const usize
     }
 
     /// Point to the low end of the allocated stack
     pub fn start(&self) -> *const usize {
-        self.buf.as_ref()
+        self.buf
+            .as_ref()
             .map(|m| m.ptr() as *const usize)
             .unwrap_or(ptr::null())
     }
@@ -88,9 +96,7 @@ impl Stack {
     pub fn end(&self) -> *const usize {
         self.buf
             .as_ref()
-            .map(|buf| unsafe {
-                buf.ptr().offset(buf.len() as isize) as *const usize
-            })
+            .map(|buf| unsafe { buf.ptr().offset(buf.len() as isize) as *const usize })
             .unwrap_or(ptr::null())
     }
 }
@@ -102,8 +108,7 @@ fn protect_last_page(stack: &Mmap) -> bool {
         // Yes! The stack grows from higher addresses (the end of the allocated
         // block) to lower addresses (the start of the allocated block).
         let last_page = stack.ptr() as *mut libc::c_void;
-        libc::mprotect(last_page, page_size() as libc::size_t,
-                       libc::PROT_NONE) != -1
+        libc::mprotect(last_page, page_size() as libc::size_t, libc::PROT_NONE) != -1
     }
 }
 
@@ -113,7 +118,8 @@ fn protect_last_page(stack: &Mmap) -> bool {
         // see above
         let last_page = stack.ptr() as *mut libc::c_void;
         let mut old_prot: libc::DWORD = 0;
-        libc::VirtualProtect(last_page, page_size() as libc::SIZE_T,
+        libc::VirtualProtect(last_page,
+                             page_size() as libc::SIZE_T,
                              libc::PAGE_NOACCESS,
                              &mut old_prot as libc::LPDWORD) != 0
     }
@@ -128,16 +134,14 @@ pub struct StackPool {
 
 impl StackPool {
     pub fn new() -> StackPool {
-        StackPool {
-            stacks: vec![],
-        }
+        StackPool { stacks: vec![] }
     }
 
     pub fn take_stack(&mut self, min_size: usize) -> Stack {
         // Ideally this would be a binary search
         match self.stacks.iter().position(|s| min_size <= s.min_size) {
             Some(idx) => self.stacks.swap_remove(idx),
-            None => Stack::new(min_size)
+            None => Stack::new(min_size).unwrap(),
         }
     }
 
@@ -160,15 +164,15 @@ fn max_cached_stacks() -> usize {
     let amt = amt.unwrap_or(10);
     // 0 is our sentinel value, so ensure that we'll never see 0 after
     // initialization has run
-    unsafe { AMT.store(amt + 1, atomic::Ordering::SeqCst); }
+    unsafe {
+        AMT.store(amt + 1, atomic::Ordering::SeqCst);
+    }
     return amt;
 }
 
 #[cfg(unix)]
 fn page_size() -> usize {
-    unsafe {
-        libc::sysconf(libc::_SC_PAGESIZE) as usize
-    }
+    unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
 }
 
 #[cfg(windows)]
@@ -180,6 +184,24 @@ fn page_size() -> usize {
         libc::GetSystemInfo(&mut info);
         info.dwPageSize as usize
     }
+}
+
+#[derive(Debug)]
+pub struct MProtectError {
+    stack: Stack,
+}
+
+impl MProtectError {
+    /// Use the stack anyway
+    pub unsafe fn into_inner(self) -> Stack {
+        self.stack
+    }
+}
+
+#[derive(Debug)]
+pub enum StackError {
+    MmapError(io::Error),
+    MProtectError(MProtectError),
 }
 
 #[cfg(test)]

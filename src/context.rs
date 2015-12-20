@@ -53,7 +53,11 @@ impl Context {
         ctx
     }
 
-    pub fn init_with(&mut self, init: InitFn, arg: usize, start: *mut libc::c_void, stack: &mut Stack) {
+    pub fn init_with(&mut self,
+                     init: InitFn,
+                     arg: usize,
+                     start: *mut libc::c_void,
+                     stack: &mut Stack) {
         let sp: *const usize = stack.end();
         let sp: *mut usize = sp as *mut usize;
         // Save and then immediately load the current context,
@@ -67,12 +71,11 @@ impl Context {
         // overflow). Additionally, their coroutine stacks are listed as being
         // zero-length, so that's how we detect what's what here.
         let stack_base: *const usize = stack.start();
-        self.stack_bounds =
-            if sp as libc::uintptr_t == stack_base as libc::uintptr_t {
-                None
-            } else {
-                Some((stack_base as usize, sp as usize))
-            };
+        self.stack_bounds = if sp as libc::uintptr_t == stack_base as libc::uintptr_t {
+            None
+        } else {
+            Some((stack_base as usize, sp as usize))
+        };
     }
 
     /// Switch contexts
@@ -83,10 +86,10 @@ impl Context {
     pub fn swap(out_context: &mut Context, in_context: &Context) {
         debug!("swapping contexts");
         let out_regs: &mut Registers = match out_context {
-            &mut Context { regs: ref mut r, .. } => r
+            &mut Context { regs: ref mut r, .. } => r,
         };
         let in_regs: &Registers = match in_context {
-            &Context { regs: ref r, .. } => r
+            &Context { regs: ref r, .. } => r,
         };
 
         debug!("noting the stack limit and doing raw swap");
@@ -147,7 +150,7 @@ impl Context {
     }
 }
 
-extern {
+extern "C" {
     fn rust_swap_registers(out_regs: *mut Registers, in_regs: *const Registers);
     fn rust_save_registers(out_regs: *mut Registers);
     fn rust_load_registers(in_regs: *const Registers) -> !;
@@ -180,26 +183,54 @@ extern {
 #[repr(C)]
 #[derive(Debug)]
 struct Registers {
-    eax: u32, ebx: u32, ecx: u32, edx: u32,
-    ebp: u32, esi: u32, edi: u32, esp: u32,
-    cs: u16, ds: u16, ss: u16, es: u16, fs: u16, gs: u16,
-    eflags: u32, eip: u32
+    eax: u32,
+    ebx: u32,
+    ecx: u32,
+    edx: u32,
+    ebp: u32,
+    esi: u32,
+    edi: u32,
+    esp: u32,
+    cs: u16,
+    ds: u16,
+    ss: u16,
+    es: u16,
+    fs: u16,
+    gs: u16,
+    eflags: u32,
+    eip: u32,
 }
 
 #[cfg(target_arch = "x86")]
 impl Registers {
     fn new() -> Registers {
         Registers {
-            eax: 0, ebx: 0, ecx: 0, edx: 0,
-            ebp: 0, esi: 0, edi: 0, esp: 0,
-            cs: 0, ds: 0, ss: 0, es: 0, fs: 0, gs: 0,
-            eflags: 0, eip: 0,
+            eax: 0,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+            ebp: 0,
+            esi: 0,
+            edi: 0,
+            esp: 0,
+            cs: 0,
+            ds: 0,
+            ss: 0,
+            es: 0,
+            fs: 0,
+            gs: 0,
+            eflags: 0,
+            eip: 0,
         }
     }
 }
 
 #[cfg(target_arch = "x86")]
-fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut libc::c_void, sp: *mut usize) {
+fn initialize_call_frame(regs: &mut Registers,
+                         fptr: InitFn,
+                         arg: usize,
+                         thunkptr: *mut libc::c_void,
+                         sp: *mut usize) {
     // x86 has interesting stack alignment requirements, so do some alignment
     // plus some offsetting to figure out what the actual stack should be.
     let sp = align_down(sp);
@@ -232,7 +263,7 @@ fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkpt
 #[derive(Debug)]
 struct Registers {
     gpr: [libc::uintptr_t; 14],
-    _xmm: [simd::u32x4; 10]
+    _xmm: [simd::u32x4; 10],
 }
 
 #[cfg(all(windows, target_arch = "x86_64"))]
@@ -240,7 +271,7 @@ impl Registers {
     fn new() -> Registers {
         Registers {
             gpr: [0; 14],
-            _xmm: [simd::u32x4::new(0,0,0,0); 10]
+            _xmm: [simd::u32x4::new(0, 0, 0, 0); 10],
         }
     }
 }
@@ -250,7 +281,7 @@ impl Registers {
 #[derive(Debug)]
 struct Registers {
     gpr: [libc::uintptr_t; 10],
-    _xmm: [simd::u32x4; 6]
+    _xmm: [simd::u32x4; 6],
 }
 
 #[cfg(all(not(windows), target_arch = "x86_64"))]
@@ -258,14 +289,20 @@ impl Registers {
     fn new() -> Registers {
         Registers {
             gpr: [0; 10],
-            _xmm: [simd::u32x4::new(0,0,0,0); 6]
+            _xmm: [simd::u32x4::new(0, 0, 0, 0); 6],
         }
     }
 }
 
 #[cfg(target_arch = "x86_64")]
-fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut libc::c_void, sp: *mut usize) {
-    extern { fn rust_bootstrap_green_task(); } // use an indirection because the call contract differences between windows and linux
+fn initialize_call_frame(regs: &mut Registers,
+                         fptr: InitFn,
+                         arg: usize,
+                         thunkptr: *mut libc::c_void,
+                         sp: *mut usize) {
+    extern "C" {
+        fn rust_bootstrap_green_task();
+    } // use an indirection because the call contract differences between windows and linux
     // TODO: use rust's condition compile attribute instead
 
     // Redefinitions from rt/arch/x86_64/regs.h
@@ -281,7 +318,9 @@ fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkpt
     let sp = mut_offset(sp, -1);
 
     // The final return address. 0 indicates the bottom of the stack
-    unsafe { *sp = 0; }
+    unsafe {
+        *sp = 0;
+    }
 
     debug!("creating call framenn");
     debug!("fptr {:#x}", fptr as libc::uintptr_t);
@@ -318,15 +357,23 @@ impl Registers {
 }
 
 #[cfg(target_arch = "arm")]
-fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut libc::c_void, sp: *mut usize) {
-    extern { fn rust_bootstrap_green_task(); } // same as the x64 arch
+fn initialize_call_frame(regs: &mut Registers,
+                         fptr: InitFn,
+                         arg: usize,
+                         thunkptr: *mut libc::c_void,
+                         sp: *mut usize) {
+    extern "C" {
+        fn rust_bootstrap_green_task();
+    } // same as the x64 arch
 
     let sp = align_down(sp);
     // sp of arm eabi is 8-byte aligned
     let sp = mut_offset(sp, -2);
 
     // The final return address. 0 indicates the bottom of the stack
-    unsafe { *sp = 0; }
+    unsafe {
+        *sp = 0;
+    }
 
     let &mut Registers(ref mut regs) = regs;
 
@@ -356,13 +403,19 @@ impl Registers {
 
 #[cfg(any(target_arch = "mips",
           target_arch = "mipsel"))]
-fn initialize_call_frame(regs: &mut Registers, fptr: InitFn, arg: usize, thunkptr: *mut libc::c_void, sp: *mut usize) {
+fn initialize_call_frame(regs: &mut Registers,
+                         fptr: InitFn,
+                         arg: usize,
+                         thunkptr: *mut libc::c_void,
+                         sp: *mut usize) {
     let sp = align_down(sp);
     // sp of mips o32 is 8-byte aligned
     let sp = mut_offset(sp, -2);
 
     // The final return address. 0 indicates the bottom of the stack
-    unsafe { *sp = 0; }
+    unsafe {
+        *sp = 0;
+    }
 
     let &mut Registers(ref mut regs) = regs;
 
@@ -398,9 +451,7 @@ mod test {
     const MIN_STACK: usize = 2 * 1024 * 1024;
 
     extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
-        let func: fn() = unsafe {
-            transmute(f)
-        };
+        let func: fn() = unsafe { transmute(f) };
         func();
 
         let ctx: &Context = unsafe { transmute(arg) };
@@ -413,8 +464,11 @@ mod test {
 
         fn callback() {}
 
-        let mut stk = Stack::new(MIN_STACK);
-        let ctx = Context::new(init_fn, unsafe { transmute(&cur) }, unsafe { transmute(callback) }, &mut stk);
+        let mut stk = Stack::new(MIN_STACK).unwrap();
+        let ctx = Context::new(init_fn,
+                               unsafe { transmute(&cur) },
+                               unsafe { transmute(callback) },
+                               &mut stk);
 
         Context::swap(&mut cur, &ctx);
     }
@@ -425,8 +479,11 @@ mod test {
 
         fn callback() {}
 
-        let mut stk = Stack::new(MIN_STACK);
-        let ctx = Context::new(init_fn, unsafe { transmute(&cur) }, unsafe { transmute(callback) }, &mut stk);
+        let mut stk = Stack::new(MIN_STACK).unwrap();
+        let ctx = Context::new(init_fn,
+                               unsafe { transmute(&cur) },
+                               unsafe { transmute(callback) },
+                               &mut stk);
 
         let mut _no_use = Box::new(true);
 

@@ -20,16 +20,19 @@ pub mod stack {
 
         return target_record_stack_bounds(stack_lo, stack_hi);
 
-        #[cfg(not(windows))] #[inline(always)]
+        #[cfg(not(windows))]
+        #[inline(always)]
         unsafe fn target_record_stack_bounds(_stack_lo: usize, _stack_hi: usize) {}
 
-        #[cfg(all(windows, target_arch = "x86"))] #[inline(always)]
+        #[cfg(all(windows, target_arch = "x86"))]
+        #[inline(always)]
         unsafe fn target_record_stack_bounds(stack_lo: usize, stack_hi: usize) {
             // stack range is at TIB: %fs:0x04 (top) and %fs:0x08 (bottom)
             asm!("mov $0, %fs:0x04" :: "r"(stack_hi) :: "volatile");
             asm!("mov $0, %fs:0x08" :: "r"(stack_lo) :: "volatile");
         }
-        #[cfg(all(windows, target_arch = "x86_64"))] #[inline(always)]
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        #[inline(always)]
         unsafe fn target_record_stack_bounds(stack_lo: usize, stack_hi: usize) {
             // stack range is at TIB: %gs:0x08 (top) and %gs:0x10 (bottom)
             asm!("mov $0, %gs:0x08" :: "r"(stack_hi) :: "volatile");
@@ -62,14 +65,16 @@ pub mod stack {
             asm!("movq $$0x60+90*8, %rsi
                   movq $0, %gs:(%rsi)" :: "r"(limit) : "rsi" : "volatile")
         }
-        #[cfg(all(target_arch = "x86_64", target_os = "linux"))] #[inline(always)]
+        #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+        #[inline(always)]
         unsafe fn target_record_sp_limit(limit: usize) {
             asm!("movq $0, %fs:112" :: "r"(limit) :: "volatile")
         }
-        #[cfg(all(target_arch = "x86_64", target_os = "windows"))] #[inline(always)]
-        unsafe fn target_record_sp_limit(_: usize) {
-        }
-        #[cfg(all(target_arch = "x86_64", target_os = "freebsd"))] #[inline(always)]
+        #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
+        #[inline(always)]
+        unsafe fn target_record_sp_limit(_: usize) {}
+        #[cfg(all(target_arch = "x86_64", target_os = "freebsd"))]
+        #[inline(always)]
         unsafe fn target_record_sp_limit(limit: usize) {
             asm!("movq $0, %fs:24" :: "r"(limit) :: "volatile")
         }
@@ -91,9 +96,9 @@ pub mod stack {
         unsafe fn target_record_sp_limit(limit: usize) {
             asm!("movl $0, %gs:48" :: "r"(limit) :: "volatile")
         }
-        #[cfg(all(target_arch = "x86", target_os = "windows"))] #[inline(always)]
-        unsafe fn target_record_sp_limit(_: usize) {
-        }
+        #[cfg(all(target_arch = "x86", target_os = "windows"))]
+        #[inline(always)]
+        unsafe fn target_record_sp_limit(_: usize) {}
 
         // mips, arm - The implementations are a bit big for inline asm!
         //             They can be found in src/rt/arch/$target_arch/record_sp.S
@@ -104,7 +109,7 @@ pub mod stack {
         unsafe fn target_record_sp_limit(limit: usize) {
             use libc::c_void;
             return record_sp_limit(limit as *const c_void);
-            extern {
+            extern "C" {
                 fn record_sp_limit(limit: *const c_void);
             }
         }
@@ -121,8 +126,7 @@ pub mod stack {
                   target_os = "bitrig",
                   target_os = "netbsd",
                   target_os = "openbsd"))]
-        unsafe fn target_record_sp_limit(_: usize) {
-        }
+        unsafe fn target_record_sp_limit(_: usize) {}
     }
 
     /// The counterpart of the function above, this function will fetch the current
@@ -146,17 +150,20 @@ pub mod stack {
                   movq %gs:(%rsi), $0" : "=r"(limit) :: "rsi" : "volatile");
             return limit;
         }
-        #[cfg(all(target_arch = "x86_64", target_os = "linux"))] #[inline(always)]
+        #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+        #[inline(always)]
         unsafe fn target_get_sp_limit() -> usize {
             let limit;
             asm!("movq %fs:112, $0" : "=r"(limit) ::: "volatile");
             return limit;
         }
-        #[cfg(all(target_arch = "x86_64", target_os = "windows"))] #[inline(always)]
+        #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
+        #[inline(always)]
         unsafe fn target_get_sp_limit() -> usize {
             return 1024;
         }
-        #[cfg(all(target_arch = "x86_64", target_os = "freebsd"))] #[inline(always)]
+        #[cfg(all(target_arch = "x86_64", target_os = "freebsd"))]
+        #[inline(always)]
         unsafe fn target_get_sp_limit() -> usize {
             let limit;
             asm!("movq %fs:24, $0" : "=r"(limit) ::: "volatile");
@@ -186,7 +193,8 @@ pub mod stack {
             asm!("movl %gs:48, $0" : "=r"(limit) ::: "volatile");
             return limit;
         }
-        #[cfg(all(target_arch = "x86", target_os = "windows"))] #[inline(always)]
+        #[cfg(all(target_arch = "x86", target_os = "windows"))]
+        #[inline(always)]
         unsafe fn target_get_sp_limit() -> usize {
             return 1024;
         }
@@ -200,7 +208,7 @@ pub mod stack {
         unsafe fn target_get_sp_limit() -> usize {
             use libc::c_void;
             return get_sp_limit() as usize;
-            extern {
+            extern "C" {
                 fn get_sp_limit() -> *const c_void;
             }
         }

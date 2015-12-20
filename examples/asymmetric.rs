@@ -20,7 +20,7 @@
 //  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 //  DEALINGS IN THE SOFTWARE.
 
-#![feature(catch_panic, fnbox)]
+#![feature(std_panic, recover, fnbox)]
 extern crate context;
 extern crate libc;
 
@@ -33,6 +33,7 @@ use std::fmt;
 use std::thread;
 use std::boxed::FnBox;
 use std::any::Any;
+use std::panic;
 
 use context::Context;
 use context::stack::{Stack, StackPool};
@@ -66,9 +67,7 @@ struct ForceUnwind;
 /// Initialization function for make context
 extern "C" fn coroutine_initialize(_: usize, f: *mut libc::c_void) -> ! {
     {
-        let func: Box<Box<FnBox()>> = unsafe {
-            Box::from_raw(f as *mut Box<FnBox()>)
-        };
+        let func: Box<Box<FnBox()>> = unsafe { Box::from_raw(f as *mut Box<FnBox()>) };
 
         func();
     }
@@ -98,22 +97,22 @@ struct CoroutineImpl<T = ()>
     result: Option<CoroResult<*mut Option<T>>>,
 }
 
-unsafe impl<T> Send for CoroutineImpl<T>
-    where T: Send,
+unsafe impl<T> Send for CoroutineImpl<T> where T: Send
 {}
 
-impl<T> fmt::Display for CoroutineImpl<T>
-    where T: Send
+impl<T> fmt::Display for CoroutineImpl<T> where T: Send
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Coroutine({})", self.name.as_ref()
-                                            .map(|s| &s[..])
-                                            .unwrap_or("<unnamed>"))
+        write!(f,
+               "Coroutine({})",
+               self.name
+                   .as_ref()
+                   .map(|s| &s[..])
+                   .unwrap_or("<unnamed>"))
     }
 }
 
-impl<T> CoroutineImpl<T>
-    where T: Send,
+impl<T> CoroutineImpl<T> where T: Send
 {
     unsafe fn yield_back(&mut self) -> Option<T> {
         Context::swap(&mut self.context, &self.parent);
@@ -146,7 +145,7 @@ impl<T> CoroutineImpl<T>
         match self.result.take() {
             None => None,
             Some(Ok(x)) => unsafe { (*x).take() },
-            _ => unreachable!("Coroutine is panicking")
+            _ => unreachable!("Coroutine is panicking"),
         }
     }
 
@@ -168,8 +167,7 @@ impl<T> CoroutineImpl<T>
     }
 }
 
-impl<T> Drop for CoroutineImpl<T>
-    where T: Send,
+impl<T> Drop for CoroutineImpl<T> where T: Send
 {
     fn drop(&mut self) {
         unsafe {
@@ -184,21 +182,19 @@ impl<T> Drop for CoroutineImpl<T>
 }
 
 pub struct Coroutine<T>
-    where T: Send + 'static,
+    where T: Send + 'static
 {
     coro: UnsafeCell<Box<CoroutineImpl<T>>>,
 }
 
-impl<T> fmt::Debug for Coroutine<T>
-    where T: Send,
+impl<T> fmt::Debug for Coroutine<T> where T: Send
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.coro.get())
     }
 }
 
-impl<T> Coroutine<T>
-    where T: Send,
+impl<T> Coroutine<T> where T: Send
 {
     #[inline]
     pub fn spawn_opts<F>(f: F, opts: Options) -> Coroutine<T>
@@ -222,16 +218,14 @@ impl<T> Coroutine<T>
             &mut *ptr
         };
 
-        let puller_ref = CoroutineRef {
-            coro: coro_ref
-        };
+        let puller_ref = CoroutineRef { coro: coro_ref };
 
         // Coroutine function wrapper
         // Responsible for calling the function and dealing with panicking
-        let wrapper = move|| -> ! {
+        let wrapper = move || -> ! {
             let ret = unsafe {
                 let puller_ref = puller_ref.clone();
-                thread::catch_panic(move|| {
+                try(move || {
                     let coro_ref: &mut CoroutineImpl<T> = &mut *puller_ref.coro;
                     coro_ref.state = State::Running;
                     f(puller_ref)
@@ -252,14 +246,19 @@ impl<T> Coroutine<T>
                             use std::io::Write;
                             let msg = match err.downcast_ref::<&'static str>() {
                                 Some(s) => *s,
-                                None => match err.downcast_ref::<String>() {
-                                    Some(s) => &s[..],
-                                    None => "Box<Any>",
+                                None => {
+                                    match err.downcast_ref::<String>() {
+                                        Some(s) => &s[..],
+                                        None => "Box<Any>",
+                                    }
                                 }
                             };
 
                             let name = coro_ref.name().unwrap_or("<unnamed>");
-                            let _ = writeln!(&mut stderr(), "Coroutine '{}' panicked at '{}'", name, msg);
+                            let _ = writeln!(&mut stderr(),
+                                             "Coroutine '{}' panicked at '{}'",
+                                             name,
+                                             msg);
                         }
 
                         coro_ref.result = Some(Err(CoroError::Panicking(err)));
@@ -283,12 +282,13 @@ impl<T> Coroutine<T>
 
         let callback: Box<FnBox()> = Box::new(wrapper);
 
-        coro.context.init_with(coroutine_initialize, 0, Box::into_raw(Box::new(callback)) as *mut libc::c_void, &mut stack);
+        coro.context.init_with(coroutine_initialize,
+                               0,
+                               Box::into_raw(Box::new(callback)) as *mut libc::c_void,
+                               &mut stack);
         coro.stack = Some(stack);
 
-        Coroutine {
-            coro: UnsafeCell::new(coro)
-        }
+        Coroutine { coro: UnsafeCell::new(coro) }
     }
 
     #[inline]
@@ -300,56 +300,43 @@ impl<T> Coroutine<T>
 
     #[inline]
     pub fn name(&self) -> Option<&str> {
-        unsafe {
-            (&*self.coro.get()).name()
-        }
+        unsafe { (&*self.coro.get()).name() }
     }
 
     #[inline]
     pub fn resume(&self) -> CoroResult<Option<T>> {
-        unsafe {
-            (&mut *self.coro.get()).resume()
-        }
+        unsafe { (&mut *self.coro.get()).resume() }
     }
 
     #[inline]
     pub fn resume_with(&self, data: T) -> CoroResult<Option<T>> {
-        unsafe {
-            (&mut *self.coro.get()).resume_with(data)
-        }
+        unsafe { (&mut *self.coro.get()).resume_with(data) }
     }
 }
 
 pub struct CoroutineRef<T>
-    where T: Send,
+    where T: Send
 {
     coro: *mut CoroutineImpl<T>,
 }
 
-impl<T> Copy for CoroutineRef<T>
-    where T: Send,
+impl<T> Copy for CoroutineRef<T> where T: Send
 {}
 
-impl<T> Clone for CoroutineRef<T>
-    where T: Send,
+impl<T> Clone for CoroutineRef<T> where T: Send
 {
     fn clone(&self) -> CoroutineRef<T> {
-        CoroutineRef {
-            coro: self.coro,
-        }
+        CoroutineRef { coro: self.coro }
     }
 }
 
-unsafe impl<T> Send for CoroutineRef<T>
-    where T: Send,
+unsafe impl<T> Send for CoroutineRef<T> where T: Send
 {}
 
-unsafe impl<T> Sync for CoroutineRef<T>
-    where T: Send,
+unsafe impl<T> Sync for CoroutineRef<T> where T: Send
 {}
 
-impl<T> CoroutineRef<T>
-    where T: Send,
+impl<T> CoroutineRef<T> where T: Send
 {
     #[inline]
     pub fn yield_back(&self) -> Option<T> {
@@ -369,9 +356,7 @@ impl<T> CoroutineRef<T>
 
     #[inline]
     pub fn name(&self) -> Option<&str> {
-        unsafe {
-            (&*self.coro).name()
-        }
+        unsafe { (&*self.coro).name() }
     }
 
     #[inline]
@@ -383,8 +368,7 @@ impl<T> CoroutineRef<T>
     }
 }
 
-impl<T> Iterator for Coroutine<T>
-    where T: Send,
+impl<T> Iterator for Coroutine<T> where T: Send
 {
     type Item = CoroResult<T>;
 
@@ -406,4 +390,10 @@ fn main() {
     for num in coro {
         println!("{}", num.unwrap());
     }
+}
+
+unsafe fn try<R, F: FnOnce() -> R>(f: F) -> thread::Result<R> {
+    let mut f = Some(f);
+    let f = &mut f as *mut Option<F> as usize;
+    panic::recover(move || (*(f as *mut Option<F>)).take().unwrap()())
 }
