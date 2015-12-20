@@ -64,7 +64,7 @@ fn main() {
         println!("Inside your function!");
     });
 
-    let mut stk = Stack::new(STACK_SIZE);
+    let mut stk = Stack::new(STACK_SIZE).unwrap();
     let ctx = Context::new(init_fn, unsafe { mem::transmute(&cur) },
                            Box::into_raw(Box::new(callback)) as *mut libc::c_void, &mut stk);
 
