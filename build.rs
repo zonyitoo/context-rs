@@ -12,7 +12,7 @@ fn main() {
     let arch =
         match arch_sub {
             "x86_64" => "x86_64",
-            "x86" => "i686",
+            "x86" | "i686" | "i586" | "i486" | "i386" => "i686",
             "arm" => "arm",
             "mips" => "mips",
             "mipsel" => "mipsel",
