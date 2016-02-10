@@ -86,7 +86,7 @@ SWAP_REGISTERS:
         mov %r14, (RUSTRT_R14*8)(ARG0)
         mov %r15, (RUSTRT_R15*8)(ARG0)
 
-#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32)
+#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32) || defined(__CYGWIN__)
         mov %rdi, (RUSTRT_RDI*8)(ARG0)
         mov %rsi, (RUSTRT_RSI*8)(ARG0)
 #endif
@@ -95,7 +95,7 @@ SWAP_REGISTERS:
         mov ARG0, (RUSTRT_ARG0*8)(ARG0)
 
         // Save non-volatile XMM registers:
-#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32)
+#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32) || defined(__CYGWIN__)
         movapd %xmm6, (RUSTRT_XMM6*8)(ARG0)
         movapd %xmm7, (RUSTRT_XMM7*8)(ARG0)
         movapd %xmm8, (RUSTRT_XMM8*8)(ARG0)
@@ -125,7 +125,7 @@ SWAP_REGISTERS:
         mov (RUSTRT_R14*8)(ARG1), %r14
         mov (RUSTRT_R15*8)(ARG1), %r15
 
-#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32)
+#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32) || defined(__CYGWIN__)
         mov (RUSTRT_RDI*8)(ARG1), %rdi
         mov (RUSTRT_RSI*8)(ARG1), %rsi
 #endif
@@ -134,7 +134,7 @@ SWAP_REGISTERS:
         mov (RUSTRT_ARG0*8)(ARG1), ARG0
 
         // Restore non-volatile XMM registers:
-#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32)
+#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32) || defined(__CYGWIN__)
         movapd (RUSTRT_XMM6*8)(ARG1), %xmm6
         movapd (RUSTRT_XMM7*8)(ARG1), %xmm7
         movapd (RUSTRT_XMM8*8)(ARG1), %xmm8
@@ -198,7 +198,7 @@ SAVE_REGISTERS:
         mov %r14, (RUSTRT_R14*8)(ARG0)
         mov %r15, (RUSTRT_R15*8)(ARG0)
 
-#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32)
+#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32) || defined(__CYGWIN__)
         mov %rdi, (RUSTRT_RDI*8)(ARG0)
         mov %rsi, (RUSTRT_RSI*8)(ARG0)
 #endif
@@ -207,7 +207,7 @@ SAVE_REGISTERS:
         mov ARG0, (RUSTRT_ARG0*8)(ARG0)
 
         // Save non-volatile XMM registers:
-#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32)
+#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32) || defined(__CYGWIN__)
         movapd %xmm6, (RUSTRT_XMM6*8)(ARG0)
         movapd %xmm7, (RUSTRT_XMM7*8)(ARG0)
         movapd %xmm8, (RUSTRT_XMM8*8)(ARG0)
@@ -251,14 +251,14 @@ LOAD_REGISTERS:
     mov (RUSTRT_R14*8)(ARG0), %r14
     mov (RUSTRT_R15*8)(ARG0), %r15
 
-#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32)
+#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32) || defined(__CYGWIN__)
     mov (RUSTRT_RDI*8)(ARG0), %rdi
     mov (RUSTRT_RSI*8)(ARG0), %rsi
 #endif
 
 
     // Restore non-volatile XMM registers:
-#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32)
+#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32) || defined(__CYGWIN__)
     movapd (RUSTRT_XMM6*8)(ARG0), %xmm6
     movapd (RUSTRT_XMM7*8)(ARG0), %xmm7
     movapd (RUSTRT_XMM8*8)(ARG0), %xmm8

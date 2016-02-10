@@ -20,7 +20,7 @@
 #define RUSTRT_R14   6
 #define RUSTRT_R15   7
 #define RUSTRT_IP    8
-#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32)
+#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32) || defined(__CYGWIN__)
     #define RUSTRT_RDI   9
     #define RUSTRT_RSI   10
     #define RUSTRT_ST1   11
@@ -50,7 +50,7 @@
 
 // ARG0 is the register in which the first argument goes.
 // Naturally this depends on your operating system.
-#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32)
+#if defined(__MINGW32__) || defined(_WINDOWS) || defined(_WIN32) || defined(__CYGWIN__)
     #define RUSTRT_ARG0_S %rcx
     #define RUSTRT_ARG1_S %rdx
     #define RUSTRT_ARG2_S %r8

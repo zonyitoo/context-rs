@@ -20,7 +20,7 @@ getcontext.
 The registers_t variable is in (%esp)
 */
 
-#if defined(__APPLE__) || defined(_WIN32)
+#if defined(__APPLE__) || defined(_WIN32) || defined(_WINDOWS) || defined(__CYGWIN__) || defined(__MINGW32__)
 #define SWAP_REGISTERS _rust_swap_registers
 #else
 #define SWAP_REGISTERS rust_swap_registers
@@ -64,7 +64,7 @@ SWAP_REGISTERS:
     // Return!
     jmp *48(%eax)
 
-#if defined(__APPLE__) || defined(_WIN32)
+#if defined(__APPLE__) || defined(_WIN32) || defined(_WINDOWS) || defined(__CYGWIN__) || defined(__MINGW32__)
 #define SAVE_REGISTERS _rust_save_registers
 #else
 #define SAVE_REGISTERS rust_save_registers
@@ -94,7 +94,7 @@ SAVE_REGISTERS:
     // Return!
     jmp *48(%eax)
 
-#if defined(__APPLE__) || defined(_WIN32)
+#if defined(__APPLE__) || defined(_WIN32) || defined(_WINDOWS) || defined(__CYGWIN__) || defined(__MINGW32__)
 #define LOAD_REGISTERS _rust_load_registers
 #else
 #define LOAD_REGISTERS rust_load_registers
