@@ -1,5 +1,15 @@
+sudo: false
 language: rust
-rust: nightly
+rust:
+  - nightly
+  - 1.6.0
+
+os:
+  - linux
+  - osx
+
+env:
+  - RUST_BACKTRACE=1
 
 script:
-    - cargo test -v
+  - cargo test
