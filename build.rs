@@ -67,6 +67,8 @@ fn main() {
     let base_path: PathBuf = ["src", "asm"].iter().collect();
     let mut config = gcc::Config::new();
 
+    config.define("BOOST_CONTEXT_EXPORT", None);
+
     if is_win_gnu {
         config.flag("-x").flag("assembler-with-cpp");
     }
