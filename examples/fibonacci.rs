@@ -15,13 +15,13 @@ fn main() {
     // This method will always `resume()` immediately back to the
     // previous `Context` with a `data` value of the next number in the fibonacci sequence.
     // You could thus describe this method as a "fibonacci sequence generator".
-    extern "C" fn context_function(t: Transfer) {
+    extern "C" fn context_function(mut t: Transfer) -> ! {
         let mut a = 0usize;
         let mut b = 1usize;
 
         loop {
             print!("Yielding {} => ", a);
-            t.context.resume(a);
+            t = t.context.resume(a);
 
             let next = a + b;
             a = b;

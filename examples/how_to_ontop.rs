@@ -32,6 +32,15 @@ mod imp {
         }
     }
 
+    fn take_some_stack_from_transfer(t: Transfer) {
+        let stack_ref = unsafe { &mut *(t.data as *mut Option<ProtectedFixedSizeStack>) };
+        stack_ref.take()
+    }
+
+    fn stack_ref_from_some_stack(&mut some_stack: Option<ProtectedFixedSizeStack>) {
+        some_stack as *mut Option<ProtectedFixedSizeStack> as usize
+    }
+
     // This method is used to force unwind a foreign context function.
     extern "C" fn unwind_stack(_: Transfer) -> Transfer {
         println!("Unwinding stack by panicking!");
@@ -57,19 +66,21 @@ mod imp {
 
     // This method is used to defer stack deallocation after it's not used anymore.
     extern "C" fn delete_stack(t: Transfer) -> Transfer {
-        let stack_ref = unsafe { &mut *(t.data as *mut Option<ProtectedFixedSizeStack>) };
-
         println!("Deleting stack!");
-        let _ = stack_ref.take();
+        let _ = take_some_stack_from_transfer(t);
 
         t
     }
 
     // This method is used as the "main" context function.
-    extern "C" fn context_function(t: Transfer) {
+    extern "C" fn context_function(t: Transfer) -> ! {
         println!("Entering context_function...");
 
-        let stack_ref = t.data;
+        // Take over the stack from the main function, because we want to manage it ourselves.
+        // The main function could safely return after this in theory.
+        let some_stack = take_some_stack_from_transfer(t);
+        let stack_ref = stack_ref_from_some_stack(&mut some_stack);
+
         let result = {
             // Use `std::panic::recover()` to catch panics from `unwind_stack()`.
             panic::recover(|| {
@@ -103,14 +114,14 @@ mod imp {
 
     pub fn run() {
         // Allocate some stack.
-        let mut stack = Some(ProtectedFixedSizeStack::default());
-        let stack_ref = &mut stack as *mut Option<ProtectedFixedSizeStack> as usize;
+        let mut some_stack = Some(ProtectedFixedSizeStack::default());
+        let stack_ref = stack_ref_from_some_stack(&mut some_stack);
 
         // Allocate a Context on the stack.
         // `t` will now contain a reference to the context function
         // `context_function()` and a `data` value of 0.
         let mut t = Transfer {
-            context: Context::new(stack.as_ref().unwrap(), context_function),
+            context: Context::new(some_stack.as_ref().unwrap(), context_function),
             data: 0,
         };
 

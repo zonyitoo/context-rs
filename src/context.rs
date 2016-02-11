@@ -39,7 +39,7 @@ extern "C" {
 }
 
 /// Functions of this signature are used as the entry point for a new `Context`.
-pub type ContextFn = extern "C" fn(t: Transfer);
+pub type ContextFn = extern "C" fn(t: Transfer) -> !;
 
 /// Functions of this signature are used as the callback after resuming ontop of a `Context`.
 pub type ResumeOntopFn = extern "C" fn(t: Transfer) -> Transfer;
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn new_vs_resume() {
-        extern "C" fn noop(mut t: Transfer) {
+        extern "C" fn noop(mut t: Transfer) -> ! {
             loop {
                 t = t.context.resume(0);
             }
@@ -212,10 +212,12 @@ mod tests {
 
     #[test]
     fn number_generator() {
-        extern "C" fn number_generator(mut t: Transfer) {
+        extern "C" fn number_generator(mut t: Transfer) -> ! {
             for i in 0usize.. {
                 t = t.context.resume(i);
             }
+
+            unreachable!();
         }
 
         let stack = ProtectedFixedSizeStack::default();
@@ -236,8 +238,9 @@ mod tests {
 
     #[test]
     fn resume_ontop() {
-        extern "C" fn resume(t: Transfer) {
+        extern "C" fn resume(t: Transfer) -> ! {
             t.context.resume_ontop(0, resume_ontop);
+            unreachable!();
         }
 
         extern "C" fn resume_ontop(mut t: Transfer) -> Transfer {

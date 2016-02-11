@@ -15,11 +15,13 @@ fn main() {
     // This method will always `resume()` immediately back to the
     // previous `Context` with a `data` value incremented by one starting at 0.
     // You could thus describe this method as a "natural number generator".
-    extern "C" fn context_function(t: Transfer) {
+    extern "C" fn context_function(mut t: Transfer) -> ! {
         for i in 0usize.. {
             print!("Yielding {} => ", i);
-            t.context.resume(i);
+            t = t.context.resume(i);
         }
+
+        unreachable!();
     }
 
     // Allocate some stack.
