@@ -28,3 +28,6 @@ winapi = "0.2"
 
 [build-dependencies]
 gcc = "0.3"
+
+[features]
+nightly = []

@@ -5,19 +5,19 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-#[cfg(not(nightly))]
+#![cfg_attr(feature = "nightly", feature(panic_propagate, recover, std_panic))]
+
+extern crate context;
+
+#[cfg(not(feature = "nightly"))]
 mod imp {
     pub fn run() {
         println!("Rust Nightly is required for this example!");
     }
 }
 
-#[cfg(nightly)]
+#[cfg(feature = "nightly")]
 mod imp {
-    #![feature(std_panic, recover, panic_propagate)]
-
-    extern crate context;
-
     use std::panic;
 
     use context::{Context, Transfer};
@@ -32,12 +32,12 @@ mod imp {
         }
     }
 
-    fn take_some_stack_from_transfer(t: Transfer) {
+    fn take_some_stack_from_transfer(t: Transfer) -> Option<ProtectedFixedSizeStack> {
         let stack_ref = unsafe { &mut *(t.data as *mut Option<ProtectedFixedSizeStack>) };
         stack_ref.take()
     }
 
-    fn stack_ref_from_some_stack(&mut some_stack: Option<ProtectedFixedSizeStack>) {
+    fn stack_ref_from_some_stack(some_stack: &mut Option<ProtectedFixedSizeStack>) -> usize {
         some_stack as *mut Option<ProtectedFixedSizeStack> as usize
     }
 
@@ -78,7 +78,7 @@ mod imp {
 
         // Take over the stack from the main function, because we want to manage it ourselves.
         // The main function could safely return after this in theory.
-        let some_stack = take_some_stack_from_transfer(t);
+        let mut some_stack = take_some_stack_from_transfer(t);
         let stack_ref = stack_ref_from_some_stack(&mut some_stack);
 
         let result = {
@@ -110,6 +110,8 @@ mod imp {
         // function `delete_stack()` before `main()` returns from it's call to `resume_ontop()`.
         println!("Defer stack deallocation by returning to main()!");
         t.context.resume_ontop(stack_ref, delete_stack);
+
+        unreachable!();
     }
 
     pub fn run() {
@@ -150,7 +152,7 @@ mod imp {
         println!("Resuming context with unwind_stack() ontop!");
         t.context.resume_ontop(0, unwind_stack);
 
-        match stack {
+        match some_stack {
             Some(..) => println!("Stack is still there (this should not happen here)!"),
             None => println!("Stack has been deleted!"),
         }
