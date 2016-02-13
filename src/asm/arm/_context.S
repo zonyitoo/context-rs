@@ -133,4 +133,3 @@ GET_SP_LIMIT:
 
 	ldr r0, [r3]
 	mov pc, lr
-#endif
