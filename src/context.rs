@@ -87,7 +87,7 @@ impl Context {
     /// This due to the fact that intially it points to the entry function `f` and only later on
     /// to the actual implementation defined context data on the stack.
     /// Due to this it is not safe to call `resume_ontop()` until after `resume()` has been called.
-    #[inline(always)]
+    #[inline(never)]
     pub fn new<'a>(stack: &'a Stack, f: ContextFn) -> &'a Context {
         unsafe { make_fcontext(stack.top(), stack.len(), f) }
     }
@@ -100,7 +100,7 @@ impl Context {
     ///
     /// This behaviour is similiar in spirit to regular function calls with the difference
     /// that the call to `resume()` only returns when someone resumes the caller in turn.
-    #[inline(always)]
+    #[inline(never)]
     pub fn resume(&self, data: usize) -> Transfer<'static> {
         unsafe { jump_fcontext(self, data) }
     }
@@ -126,7 +126,7 @@ impl Context {
     /// Calling this method is only supported on `Context` references returned
     /// by calls to `resume()`. This is due to the fact that the reference
     /// returned by `new()` points to the entry function instead.
-    #[inline(always)]
+    #[inline(never)]
     pub fn resume_ontop(&self, data: usize, f: ResumeOntopFn) -> Transfer<'static> {
         unsafe { ontop_fcontext(self, data, f) }
     }
