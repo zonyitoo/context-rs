@@ -42,8 +42,16 @@ mod imp {
     }
 
     // This method is used to force unwind a foreign context function.
-    extern "C" fn unwind_stack(_: Transfer) -> Transfer {
+    extern "C" fn unwind_stack(t: Transfer) -> Transfer {
         println!("Unwinding stack by panicking!");
+
+        // We need to store the t.context to the `t` inside `context_function`, because this function
+        // won't be able to pass the correct `t.context` to `context_function`, which is the correct
+        // return Context after stack unwinding.
+        let t_inside_context_function = unsafe {
+            &mut *(t.data as *mut Transfer)
+        };
+        t_inside_context_function.context = t.context;
 
         // Unwind the current stack by panicking.
         // We use std::panic::propagate() here however because panic!() will call the panic handler
@@ -73,13 +81,15 @@ mod imp {
     }
 
     // This method is used as the "main" context function.
-    extern "C" fn context_function(t: Transfer) -> ! {
+    extern "C" fn context_function(mut t: Transfer) -> ! {
         println!("Entering context_function...");
 
         // Take over the stack from the main function, because we want to manage it ourselves.
         // The main function could safely return after this in theory.
         let mut some_stack = take_some_stack_from_transfer(t);
         let stack_ref = stack_ref_from_some_stack(&mut some_stack);
+
+        let t_ptr = &mut t as *mut _ as usize;
 
         let result = {
             // Use `std::panic::recover()` to catch panics from `unwind_stack()`.
@@ -88,13 +98,15 @@ mod imp {
                 // that the stack is actually being unwound.
                 let _dropper = Dropper;
 
+                let mut t = unsafe { &mut *(t_ptr as *mut Transfer) };
+
                 // We've set everything up! Go back to `main()`!
                 println!("Everything's set up!");
-                t.context.resume(0);
+                *t = t.context.resume(t_ptr);
 
                 for i in 0usize.. {
                     print!("Yielding {} => ", i);
-                    t.context.resume(i);
+                    *t = t.context.resume(i);
                 }
             })
         };
@@ -135,12 +147,15 @@ mod imp {
         // so it can delete it's own stack (which is important for stackful coroutines).
         t = t.context.resume(stack_ref);
 
+        // Store the pointer to the `t` inside the context_function for `unwind_stack`.
+        let t_ptr_inside_context_function = t.data;
+
         // Yield 10 times to `context_function()`.
         for _ in 0..10 {
             // Yield to the "frozen" state of `context_function()`.
             // The `data` value is not used in this example and is left at 0.
             print!("Resuming => ");
-            t.context.resume(0);
+            t = t.context.resume(0);
 
             // `t` will now contain a reference to the `Context` which `resumed()` us
             // (here: `context_function()`) and the value passed to it.
@@ -150,7 +165,7 @@ mod imp {
         // Resume `context_function()` with the ontop function `unwind_stack()`.
         // Before it returns from it's own call to `resume()` it will call `unwind_stack()`.
         println!("Resuming context with unwind_stack() ontop!");
-        t.context.resume_ontop(0, unwind_stack);
+        t.context.resume_ontop(t_ptr_inside_context_function, unwind_stack);
 
         match some_stack {
             Some(..) => println!("Stack is still there (this should not happen here)!"),
