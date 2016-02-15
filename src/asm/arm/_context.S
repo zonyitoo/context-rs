@@ -16,10 +16,14 @@
   #define SWAP_REGISTERS  _rust_swap_registers
   #define BOOTSTRAP_TASK  _rust_bootstrap_green_task
   #define LOAD_REGISTERS  _rust_load_registers
+  #define RECORD_SP_LIMIT _record_sp_limit
+  #define GET_SP_LIMIT    _get_sp_limit
 #else
   #define SWAP_REGISTERS  rust_swap_registers
   #define BOOTSTRAP_TASK  rust_bootstrap_green_task
   #define LOAD_REGISTERS  rust_load_registers
+  #define RECORD_SP_LIMIT record_sp_limit
+  #define GET_SP_LIMIT    get_sp_limit
 #endif
 
 .globl SWAP_REGISTERS
@@ -93,3 +97,39 @@ BOOTSTRAP_TASK:
 // no need for the second argument
 //    mov r2, r4
     mov pc, r5
+
+.globl 	RECORD_SP_LIMIT
+RECORD_SP_LIMIT:
+	// First, try to read TLS address from coprocessor
+	mrc p15, #0, r3, c13, c0, #3
+	cmp r3, #0
+	// Otherwise, try to read from magic address 0xFFFF0FF0
+	mvneq r3, #0xF000
+	ldreq r3, [r3, #-15]
+
+#if __ANDROID__
+	add r3, r3, #252
+#elif __linux__
+	add r3, r3, #4
+#endif // ANDROID
+
+	str r0, [r3]
+	mov pc, lr
+
+.globl	GET_SP_LIMIT
+GET_SP_LIMIT:
+	// First, try to read TLS address from coprocessor
+	mrc p15, #0, r3, c13, c0, #3
+	cmp r3, #0
+	// Otherwise, try to read from magic address 0xFFFF0FF0
+	mvneq r3, #0xF000
+	ldreq r3, [r3, #-15]
+
+#if __ANDROID__
+	add r3, r3, #252
+#elif __linux__
+	add r3, r3, #4
+#endif  // __ANDROID__
+
+	ldr r0, [r3]
+	mov pc, lr
