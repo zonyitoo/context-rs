@@ -7,6 +7,7 @@
 
 use std::fmt;
 use std::os::raw::c_void;
+use std::ptr;
 
 use stack::Stack;
 
@@ -18,7 +19,8 @@ extern "C" {
     /// * `sp`   - A pointer to the bottom of the stack.
     /// * `size` - The size of the stack.
     /// * `f`    - A function to be invoked on the first call to jump_fcontext(this, _).
-    fn make_fcontext(sp: *mut c_void, size: usize, f: ContextFn) -> &mut Context;
+    #[inline(never)]
+    fn make_fcontext(sp: *mut c_void, size: usize, f: ContextFn) -> *const c_void;
 
     /// Yields the execution to another `Context`.
     ///
@@ -26,7 +28,8 @@ extern "C" {
     /// * `to` - A pointer to the `Context` with whom we swap execution.
     /// * `p`  - An arbitrary argument that will be set as the `data` field
     ///          of the `Transfer` object passed to the other Context.
-    fn jump_fcontext(to: &Context, p: usize) -> Transfer;
+    #[inline(never)]
+    fn jump_fcontext(to: *const c_void, p: usize) -> Transfer;
 
     /// Yields the execution to another `Context` and executes a function "ontop" of it's stack.
     ///
@@ -35,7 +38,8 @@ extern "C" {
     /// * `p`  - An arbitrary argument that will be set as the `data` field
     ///          of the `Transfer` object passed to the other Context.
     /// * `f`  - A function to be invoked on `to` before returning.
-    fn ontop_fcontext(to: &Context, p: usize, f: ResumeOntopFn) -> Transfer;
+    #[inline(never)]
+    fn ontop_fcontext(to: *const c_void, p: usize, f: ResumeOntopFn) -> Transfer;
 }
 
 /// Functions of this signature are used as the entry point for a new `Context`.
@@ -55,41 +59,26 @@ pub type ResumeOntopFn = extern "C" fn(t: Transfer) -> Transfer;
 ///
 /// See [examples/basic.rs](https://github.com/zonyitoo/context-rs/blob/master/examples/basic.rs)
 #[repr(C)]
-pub struct Context {
-    // NOTE:
-    //   - The actual type differs from this one, but that's fine, because `Context` will only
-    //     be used using pointers to it's implementation defined struct on it's stack.
-    //   - The "placeholder" member has been added to circumvent compiler warnings.
-    placeholder: [usize; 0],
-}
+pub struct Context(*const c_void);
 
 // NOTE: Rustc is kinda dumb and introduces a overhead of up to 500% compared to the asm methods
-//       if we don't explicitely inline them or use LTO (3ns/iter VS. 18ns/iter on i7 3770).
+//       if we don't explicitely inline them or use LTO (e.g.: 3ns/iter VS. 18ns/iter on i7 3770).
 impl Context {
     /// Returns a null-pointer reference to a `Context` struct.
     ///
     /// This method is used in combination with `Transfer::empty()`.
     #[inline(always)]
-    pub unsafe fn null_ref() -> &'static Context {
-        &*(0 as *const Context)
+    pub unsafe fn null_ref() -> Context {
+        Context(ptr::null_mut())
     }
 
-    /// Allocates a new `Context` ontop of `stack` and returns a reference to it.
-    ///
-    /// Since the `Context` is allocated on the stack (with an implementation size),
-    /// it will be deleted automatically with the `stack`.
+    /// Creates a new `Context` prepared to execute `f` at the beginning of `stack`
+    /// and returns a reference to it.
     ///
     /// The passed method `f` is not executed until the first call to `resume()`.
-    ///
-    /// # Warning
-    ///
-    /// The reference returned by this call is different to the ones returned by `resume()`!
-    /// This due to the fact that intially it points to the entry function `f` and only later on
-    /// to the actual implementation defined context data on the stack.
-    /// Due to this it is not safe to call `resume_ontop()` until after `resume()` has been called.
-    #[inline(never)]
-    pub fn new<'a>(stack: &'a Stack, f: ContextFn) -> &'a Context {
-        unsafe { make_fcontext(stack.top(), stack.len(), f) }
+    #[inline(always)]
+    pub fn new(stack: &Stack, f: ContextFn) -> Context {
+        Context(unsafe { make_fcontext(stack.top(), stack.len(), f) })
     }
 
     /// Yields the execution to another `Context`.
@@ -100,9 +89,9 @@ impl Context {
     ///
     /// This behaviour is similiar in spirit to regular function calls with the difference
     /// that the call to `resume()` only returns when someone resumes the caller in turn.
-    #[inline(never)]
-    pub fn resume(&self, data: usize) -> Transfer<'static> {
-        unsafe { jump_fcontext(self, data) }
+    #[inline(always)]
+    pub fn resume(self, data: usize) -> Transfer {
+        unsafe { jump_fcontext(self.0, data) }
     }
 
     /// Yields the execution to another `Context` and executes a function "ontop" of it's stack.
@@ -120,40 +109,33 @@ impl Context {
     /// This behaviour can for instance be used to unwind the stack of an unfinished `Context`,
     /// by calling this method with a function that panics, or to deallocate the own stack,
     /// by deferring the actual deallocation until we are switched back to another, safe `Context`.
-    ///
-    /// # Warning
-    ///
-    /// Calling this method is only supported on `Context` references returned
-    /// by calls to `resume()`. This is due to the fact that the reference
-    /// returned by `new()` points to the entry function instead.
-    #[inline(never)]
-    pub fn resume_ontop(&self, data: usize, f: ResumeOntopFn) -> Transfer<'static> {
-        unsafe { ontop_fcontext(self, data, f) }
+    #[inline(always)]
+    pub fn resume_ontop(self, data: usize, f: ResumeOntopFn) -> Transfer {
+        unsafe { ontop_fcontext(self.0, data, f) }
     }
 }
 
 impl fmt::Debug for Context {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:p}", self)
+        write!(f, "{:p}", self.0)
     }
 }
 
 /// This is the return value by `Context::resume()` and `Context::resume_ontop()`.
-#[derive(Copy, Clone)]
 #[repr(C)]
-pub struct Transfer<'a> {
+pub struct Transfer {
     /// The previously executed `Context` which yielded to resume the current one.
-    pub context: &'a Context,
+    pub context: Context,
 
     /// The `data` which was passed to `Context::resume()` or
     /// `Context::resume_ontop()` to resume the current `Context`.
     pub data: usize,
 }
 
-impl<'a> Transfer<'a> {
+impl Transfer {
     /// Returns a new `Transfer` struct with the members set to their respective arguments.
     #[inline(always)]
-    pub fn new(context: &'a mut Context, data: usize) -> Transfer {
+    pub fn new(context: Context, data: usize) -> Transfer {
         Transfer {
             context: context,
             data: data,
@@ -167,7 +149,7 @@ impl<'a> Transfer<'a> {
     /// This is for instance the case if you use `resume_ontop()` to destroy
     /// the stack as can be seen in the deallocate_ontop() test.
     #[inline(always)]
-    pub unsafe fn empty(data: usize) -> Transfer<'static> {
+    pub unsafe fn empty(data: usize) -> Transfer {
         Transfer {
             context: Context::null_ref(),
             data: data,
@@ -175,45 +157,34 @@ impl<'a> Transfer<'a> {
     }
 }
 
-impl<'a> fmt::Debug for Transfer<'a> {
+impl fmt::Debug for Transfer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
                "Transfer {{ context: {:p}, data: {:p} }}",
-               self.context,
+               self.context.0,
                self.data as *const c_void)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::mem;
+    use std::os::raw::c_void;
+
     use stack::ProtectedFixedSizeStack;
     use super::*;
 
     #[test]
-    fn new_vs_resume() {
-        extern "C" fn noop(mut t: Transfer) -> ! {
-            loop {
-                t = t.context.resume(0);
-            }
-        }
-
-        let stack = ProtectedFixedSizeStack::default();
-        let mut t = Transfer {
-            context: Context::new(&stack, noop),
-            data: 0,
-        };
-
-        let new_ptr = t.context as *const Context;
-        t = t.context.resume(0);
-        let resume_ptr = t.context as *const Context;
-
-        assert!(new_ptr != resume_ptr);
+    fn type_sizes() {
+        assert_eq!(mem::size_of::<Context>(), mem::size_of::<usize>());
+        assert_eq!(mem::size_of::<Context>(), mem::size_of::<*const c_void>());
     }
 
     #[test]
     fn number_generator() {
         extern "C" fn number_generator(mut t: Transfer) -> ! {
             for i in 0usize.. {
+                assert_eq!(t.data, i);
                 t = t.context.resume(i);
             }
 
@@ -221,13 +192,10 @@ mod tests {
         }
 
         let stack = ProtectedFixedSizeStack::default();
-        let mut t = Transfer {
-            context: Context::new(&stack, number_generator),
-            data: 0,
-        };
+        let mut t = Transfer::new(Context::new(&stack, number_generator), 0);
 
         for i in 0..10usize {
-            t = t.context.resume(0);
+            t = t.context.resume(i);
             assert_eq!(t.data, i);
 
             if t.data == 9 {
@@ -239,20 +207,19 @@ mod tests {
     #[test]
     fn resume_ontop() {
         extern "C" fn resume(t: Transfer) -> ! {
-            t.context.resume_ontop(0, resume_ontop);
+            assert_eq!(t.data, 0);
+            t.context.resume_ontop(1, resume_ontop);
             unreachable!();
         }
 
         extern "C" fn resume_ontop(mut t: Transfer) -> Transfer {
+            assert_eq!(t.data, 1);
             t.data = 123;
             t
         }
 
         let stack = ProtectedFixedSizeStack::default();
-        let mut t = Transfer {
-            context: Context::new(&stack, resume),
-            data: 0,
-        };
+        let mut t = Transfer::new(Context::new(&stack, resume), 0);
 
         t = t.context.resume(0);
         assert_eq!(t.data, 123);

@@ -33,12 +33,7 @@ fn main() {
     let stack = ProtectedFixedSizeStack::default();
 
     // Allocate a Context on the stack.
-    // `t` will now contain a reference to the context function
-    // `context_function()` and a `data` value of 0.
-    let mut t = Transfer {
-        context: Context::new(&stack, context_function),
-        data: 0,
-    };
+    let mut t = Transfer::new(Context::new(&stack, context_function), 0);
 
     // Yield 10 times to `context_function()`.
     for _ in 0..10 {
@@ -48,8 +43,6 @@ fn main() {
         print!("Resuming => ");
         t = t.context.resume(0);
 
-        // `t` will now contain a reference to the `Context` which `resumed()` us
-        // (here: `context_function()`) and the value passed to it.
         println!("Got {}", t.data);
     }
 
