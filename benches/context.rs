@@ -10,9 +10,11 @@
 extern crate context;
 extern crate test;
 
+use test::Bencher;
+
 use context::{Context, Transfer};
 use context::stack::FixedSizeStack;
-use test::Bencher;
+use std::mem;
 
 #[bench]
 fn resume_reference_perf(b: &mut Bencher) {
@@ -26,17 +28,14 @@ fn resume_reference_perf(b: &mut Bencher) {
 
 #[bench]
 fn resume(b: &mut Bencher) {
-    extern "C" fn yielder(mut t: Transfer) {
+    extern "C" fn yielder(mut t: Transfer) -> ! {
         loop {
             t = t.context.resume(1);
         }
     }
 
     let stack = FixedSizeStack::default();
-    let mut t = Transfer {
-        context: Context::new(&stack, yielder),
-        data: 0,
-    };
+    let mut t = Transfer::new(Context::new(&stack, yielder), 0);
 
-    b.iter(|| t = t.context.resume(0));
+    b.iter(|| unsafe { t = mem::replace(&mut t, mem::uninitialized()).context.resume(0) });
 }

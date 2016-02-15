@@ -9,6 +9,7 @@
 
 extern crate context;
 
+
 #[cfg(not(feature = "nightly"))]
 mod imp {
     pub fn run() {
@@ -32,8 +33,13 @@ mod imp {
         }
     }
 
-    fn take_some_stack_from_transfer(t: Transfer) -> Option<ProtectedFixedSizeStack> {
-        let stack_ref = unsafe { &mut *(t.data as *mut Option<ProtectedFixedSizeStack>) };
+    // This struct is used to carry the actual context
+    struct Carrier {
+        context: Option<Context>,
+    }
+
+    fn take_some_stack_from_transfer(t: &Transfer) -> Option<ProtectedFixedSizeStack> {
+        let stack_ref = unsafe { &mut *(t.1 as *mut Option<ProtectedFixedSizeStack>) };
         stack_ref.take()
     }
 
@@ -45,13 +51,12 @@ mod imp {
     extern "C" fn unwind_stack(t: Transfer) -> Transfer {
         println!("Unwinding stack by panicking!");
 
-        // We need to store the t.context to the `t` inside `context_function`, because this function
-        // won't be able to pass the correct `t.context` to `context_function`, which is the correct
-        // return Context after stack unwinding.
-        let t_inside_context_function = unsafe {
-            &mut *(t.data as *mut Transfer)
-        };
-        t_inside_context_function.context = t.context;
+        // We have to store the `t.context` in the `Carrier` object. because this function won't
+        // be able to return normally.
+        let Transfer(ctx, data) = t;
+        let carrier = unsafe { &mut *(data as *mut Carrier) };
+
+        carrier.context = Some(ctx);
 
         // Unwind the current stack by panicking.
         // We use std::panic::propagate() here however because panic!() will call the panic handler
@@ -75,40 +80,50 @@ mod imp {
     // This method is used to defer stack deallocation after it's not used anymore.
     extern "C" fn delete_stack(t: Transfer) -> Transfer {
         println!("Deleting stack!");
-        let _ = take_some_stack_from_transfer(t);
+        let _ = take_some_stack_from_transfer(&t);
 
         t
     }
 
     // This method is used as the "main" context function.
-    extern "C" fn context_function(mut t: Transfer) -> ! {
+    extern "C" fn context_function(t: Transfer) -> ! {
         println!("Entering context_function...");
 
         // Take over the stack from the main function, because we want to manage it ourselves.
         // The main function could safely return after this in theory.
-        let mut some_stack = take_some_stack_from_transfer(t);
+        let mut some_stack = take_some_stack_from_transfer(&t);
         let stack_ref = stack_ref_from_some_stack(&mut some_stack);
 
-        let t_ptr = &mut t as *mut _ as usize;
+        let (result, context) = {
+            let mut carrier = Carrier {
+                context: Some(t.0),
+            };
 
-        let result = {
+            let carrier_ptr = &mut carrier as *mut _ as usize;
+
             // Use `std::panic::recover()` to catch panics from `unwind_stack()`.
-            panic::recover(|| {
+            let r = panic::recover(|| {
                 // We use an instance of `Dropper` to demonstrate
                 // that the stack is actually being unwound.
                 let _dropper = Dropper;
 
-                let mut t = unsafe { &mut *(t_ptr as *mut Transfer) };
+                let carrier = unsafe { &mut *(carrier_ptr as *mut Carrier) };
 
                 // We've set everything up! Go back to `main()`!
                 println!("Everything's set up!");
-                *t = t.context.resume(t_ptr);
+                let context = carrier.context.take().unwrap();
+                let Transfer(context, _) = context.resume(carrier_ptr);
+                carrier.context = Some(context);
 
                 for i in 0usize.. {
                     print!("Yielding {} => ", i);
-                    *t = t.context.resume(i);
+                    let context = carrier.context.take().unwrap();
+                    let Transfer(context, _) = context.resume(i);
+                    carrier.context = Some(context);
                 }
-            })
+            });
+
+            (r, carrier.context.take().unwrap())
         };
 
         match result {
@@ -121,7 +136,7 @@ mod imp {
         // that particular stack, we defer deletion of it by resuming `main()` and running the ontop
         // function `delete_stack()` before `main()` returns from it's call to `resume_ontop()`.
         println!("Defer stack deallocation by returning to main()!");
-        t.context.resume_ontop(stack_ref, delete_stack);
+        context.resume_ontop(stack_ref, delete_stack);
 
         unreachable!();
     }
@@ -132,12 +147,7 @@ mod imp {
         let stack_ref = stack_ref_from_some_stack(&mut some_stack);
 
         // Allocate a Context on the stack.
-        // `t` will now contain a reference to the context function
-        // `context_function()` and a `data` value of 0.
-        let mut t = Transfer {
-            context: Context::new(some_stack.as_ref().unwrap(), context_function),
-            data: 0,
-        };
+        let mut ctx = Context::new(some_stack.as_ref().unwrap(), context_function);
 
         // Yield to context_function(). This important since the returned `Context` reference is
         // different than the one returned by `Context::new()` (since it points to the entry function).
@@ -145,27 +155,27 @@ mod imp {
         // See documentation of `Context::resume_ontop()` for more information.
         // Furthermore we pass a reference to the Option<ProtectedFixedSizeStack> along with it
         // so it can delete it's own stack (which is important for stackful coroutines).
-        t = t.context.resume(stack_ref);
+        let Transfer(context, data) = ctx.resume(stack_ref);
+        ctx = context;
 
-        // Store the pointer to the `t` inside the context_function for `unwind_stack`.
-        let t_ptr_inside_context_function = t.data;
+        // Store the pointer to the Carrier for `unwind_stack`.
+        let carrier_ptr = data;
 
         // Yield 10 times to `context_function()`.
         for _ in 0..10 {
             // Yield to the "frozen" state of `context_function()`.
             // The `data` value is not used in this example and is left at 0.
             print!("Resuming => ");
-            t = t.context.resume(0);
+            let Transfer(context, data) = ctx.resume(0);
+            ctx = context;
 
-            // `t` will now contain a reference to the `Context` which `resumed()` us
-            // (here: `context_function()`) and the value passed to it.
-            println!("Got {}", t.data);
+            println!("Got {}", data);
         }
 
         // Resume `context_function()` with the ontop function `unwind_stack()`.
         // Before it returns from it's own call to `resume()` it will call `unwind_stack()`.
         println!("Resuming context with unwind_stack() ontop!");
-        t.context.resume_ontop(t_ptr_inside_context_function, unwind_stack);
+        ctx.resume_ontop(carrier_ptr, unwind_stack);
 
         match some_stack {
             Some(..) => println!("Stack is still there (this should not happen here)!"),
