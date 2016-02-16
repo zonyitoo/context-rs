@@ -8,6 +8,7 @@
 use std::fmt;
 use std::os::raw::c_void;
 use std::ptr;
+use std::cmp::{Eq, PartialEq};
 
 use stack::Stack;
 
@@ -120,6 +121,14 @@ impl fmt::Debug for Context {
         write!(f, "{:p}", self.0)
     }
 }
+
+impl PartialEq for Context {
+    fn eq(&self, other: &Context) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for Context {}
 
 /// This is the return value by `Context::resume()` and `Context::resume_ontop()`.
 #[repr(C)]
