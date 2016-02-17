@@ -26,4 +26,4 @@ pub mod stack;
 
 mod sys;
 
-pub use context::{Context, Transfer};
+pub use context::{Context, ContextFn, ResumeOntopFn, Transfer};
