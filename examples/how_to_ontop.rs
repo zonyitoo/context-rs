@@ -39,7 +39,7 @@ mod imp {
     }
 
     fn take_some_stack_from_transfer(t: &Transfer) -> Option<ProtectedFixedSizeStack> {
-        let stack_ref = unsafe { &mut *(t.1 as *mut Option<ProtectedFixedSizeStack>) };
+        let stack_ref = unsafe { &mut *(t.data as *mut Option<ProtectedFixedSizeStack>) };
         stack_ref.take()
     }
 
@@ -53,7 +53,7 @@ mod imp {
 
         // We have to store the `t.context` in the `Carrier` object. because this function won't
         // be able to return normally.
-        let Transfer(ctx, data) = t;
+        let Transfer { context: ctx, data } = t;
         let carrier = unsafe { &mut *(data as *mut Carrier) };
 
         carrier.context = Some(ctx);
@@ -96,7 +96,7 @@ mod imp {
 
         let (result, context) = {
             let mut carrier = Carrier {
-                context: Some(t.0),
+                context: Some(t.context),
             };
 
             let carrier_ptr = &mut carrier as *mut _ as usize;
@@ -112,13 +112,13 @@ mod imp {
                 // We've set everything up! Go back to `main()`!
                 println!("Everything's set up!");
                 let context = carrier.context.take().unwrap();
-                let Transfer(context, _) = context.resume(carrier_ptr);
+                let Transfer { context, .. } = context.resume(carrier_ptr);
                 carrier.context = Some(context);
 
                 for i in 0usize.. {
                     print!("Yielding {} => ", i);
                     let context = carrier.context.take().unwrap();
-                    let Transfer(context, _) = context.resume(i);
+                    let Transfer { context, .. } = context.resume(i);
                     carrier.context = Some(context);
                 }
             });
@@ -155,7 +155,7 @@ mod imp {
         // See documentation of `Context::resume_ontop()` for more information.
         // Furthermore we pass a reference to the Option<ProtectedFixedSizeStack> along with it
         // so it can delete it's own stack (which is important for stackful coroutines).
-        let Transfer(context, data) = ctx.resume(stack_ref);
+        let Transfer { context, data } = ctx.resume(stack_ref);
         ctx = context;
 
         // Store the pointer to the Carrier for `unwind_stack`.
@@ -166,7 +166,7 @@ mod imp {
             // Yield to the "frozen" state of `context_function()`.
             // The `data` value is not used in this example and is left at 0.
             print!("Resuming => ");
-            let Transfer(context, data) = ctx.resume(0);
+            let Transfer { context, data } = ctx.resume(0);
             ctx = context;
 
             println!("Got {}", data);
