@@ -5,7 +5,6 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::fmt;
 use std::os::raw::c_void;
 use std::ptr;
 
@@ -58,25 +57,24 @@ pub type ResumeOntopFn = extern "C" fn(t: Transfer) -> Transfer;
 /// # Examples
 ///
 /// See [examples/basic.rs](https://github.com/zonyitoo/context-rs/blob/master/examples/basic.rs)
-#[derive(Eq, PartialEq, Debug)]
 #[repr(C)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Context(*const c_void);
 
 // NOTE: Rustc is kinda dumb and introduces a overhead of up to 500% compared to the asm methods
 //       if we don't explicitely inline them or use LTO (e.g.: 3ns/iter VS. 18ns/iter on i7 3770).
 impl Context {
-    /// Returns a null-pointer reference to a `Context` struct.
+    /// Returns a `Context` struct cont.
     ///
     /// This method is used in combination with `Transfer::empty()`.
     #[inline(always)]
-    pub unsafe fn null_ref() -> Context {
+    pub unsafe fn empty() -> Context {
         Context(ptr::null_mut())
     }
 
-    /// Creates a new `Context` prepared to execute `f` at the beginning of `stack`
-    /// and returns a reference to it.
+    /// Creates a new `Context` prepared to execute `f` at the beginning of `stack`.
     ///
-    /// The passed method `f` is not executed until the first call to `resume()`.
+    /// `f` is not executed until the first call to `resume()`.
     #[inline(always)]
     pub fn new(stack: &Stack, f: ContextFn) -> Context {
         Context(unsafe { make_fcontext(stack.top(), stack.len(), f) })
@@ -86,10 +84,13 @@ impl Context {
     ///
     /// The exact behaviour of this method is implementation defined, but the general mechanism is:
     /// The current state of execution is preserved somewhere and the previously saved state
-    /// in the `Context` pointed to by `&self` is restored and executed next.
+    /// in the `Context` pointed to by `self` is restored and executed next.
     ///
     /// This behaviour is similiar in spirit to regular function calls with the difference
     /// that the call to `resume()` only returns when someone resumes the caller in turn.
+    ///
+    /// The returned `Transfer` struct contains the previously active `Context` and
+    /// the `data` argument used to resume the current one.
     #[inline(always)]
     pub fn resume(self, data: usize) -> Transfer {
         unsafe { jump_fcontext(self.0, data) }
@@ -97,19 +98,19 @@ impl Context {
 
     /// Yields the execution to another `Context` and executes a function "ontop" of it's stack.
     ///
-    /// This method works similiary to `resume()`.
-    /// The difference is that the argument `f` is executed right before the targeted `Context`
-    /// pointed to by `&self` is woken up and returns from it's call to `resume()`.
-    /// The method `f` is now passed the `Transfer` struct which would normally be returned by
-    /// `resume()` and is allowed to inspect and modify it. When `f` is done it
-    /// has to return a `Transfer` struct which is then finally the one the `resume()`
-    /// method returns in the targeted `Context`.
+    /// This method identical to `resume()` with a minor difference:
+    ///
+    /// The argument `f` is executed right before the targeted `Context` pointed to by `self`
+    /// is woken up and returns from it's call to `resume()`. The method `f` is now passed the
+    /// `Transfer` struct which would normally be returned by `resume()` and is allowed to inspect
+    /// and modify it. When `f` is done it has to return a `Transfer` struct which is then finally
+    /// the one the `resume()` method returns in the targeted `Context`.
     ///
     /// This behaviour can be used to either execute additional code or map the `Transfer` struct
     /// to another one before it's returned, without the targeted `Context` giving it's consent.
-    /// This behaviour can for instance be used to unwind the stack of an unfinished `Context`,
+    /// For instance it can be used to unwind the stack of an unfinished `Context`,
     /// by calling this method with a function that panics, or to deallocate the own stack,
-    /// by deferring the actual deallocation until we are switched back to another, safe `Context`.
+    /// by deferring the actual deallocation until we jumped to another, safe `Context`.
     #[inline(always)]
     pub fn resume_ontop(self, data: usize, f: ResumeOntopFn) -> Transfer {
         unsafe { ontop_fcontext(self.0, data, f) }
@@ -118,6 +119,7 @@ impl Context {
 
 /// This is the return value by `Context::resume()` and `Context::resume_ontop()`.
 #[repr(C)]
+#[derive(Debug)]
 pub struct Transfer {
     /// The previously executed `Context` which yielded to resume the current one.
     pub context: Context,
@@ -146,18 +148,9 @@ impl Transfer {
     #[inline(always)]
     pub unsafe fn empty(data: usize) -> Transfer {
         Transfer {
-            context: Context::null_ref(),
+            context: Context::empty(),
             data: data,
         }
-    }
-}
-
-impl fmt::Debug for Transfer {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "Transfer {{ context: {:?}, data: {:p} }}",
-               self.context,
-               self.data as *const c_void)
     }
 }
 
