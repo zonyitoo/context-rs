@@ -39,3 +39,20 @@ fn resume(b: &mut Bencher) {
 
     b.iter(|| unsafe { t = mem::replace(&mut t, mem::uninitialized()).context.resume(0) });
 }
+
+#[bench]
+fn resume_ontop(b: &mut Bencher) {
+    extern "C" fn yielder(mut t: Transfer) -> ! {
+        loop {
+            t = t.context.resume(1);
+        }
+    }
+
+    extern "C" fn ontop_function(mut t: Transfer) -> Transfer {
+        t
+    }
+
+    let stack = FixedSizeStack::default();
+    let mut t = Transfer::new(Context::new(&stack, yielder), 0);
+    b.iter(|| unsafe { t = mem::replace(&mut t, mem::uninitialized()).context.resume_ontop(0, ontop_function) });
+}
