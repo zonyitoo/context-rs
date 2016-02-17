@@ -8,7 +8,6 @@
 use std::fmt;
 use std::os::raw::c_void;
 use std::ptr;
-use std::cmp::{Eq, PartialEq};
 
 use stack::Stack;
 
@@ -59,6 +58,7 @@ pub type ResumeOntopFn = extern "C" fn(t: Transfer) -> Transfer;
 /// # Examples
 ///
 /// See [examples/basic.rs](https://github.com/zonyitoo/context-rs/blob/master/examples/basic.rs)
+#[derive(Eq, PartialEq, Debug)]
 #[repr(C)]
 pub struct Context(*const c_void);
 
@@ -116,20 +116,6 @@ impl Context {
     }
 }
 
-impl fmt::Debug for Context {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:p}", self.0)
-    }
-}
-
-impl PartialEq for Context {
-    fn eq(&self, other: &Context) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl Eq for Context {}
-
 /// This is the return value by `Context::resume()` and `Context::resume_ontop()`.
 #[repr(C)]
 pub struct Transfer {
@@ -169,8 +155,8 @@ impl Transfer {
 impl fmt::Debug for Transfer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
-               "Transfer {{ context: {:p}, data: {:p} }}",
-               self.context.0,
+               "Transfer {{ context: {:?}, data: {:p} }}",
+               self.context,
                self.data as *const c_void)
     }
 }
