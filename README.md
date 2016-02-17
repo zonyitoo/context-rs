@@ -6,6 +6,8 @@
 
 Context utilities in Rust
 
+**WARN: `master` branch is deprecated, please migrate to `1.0` branch.**
+
 ```toml
 [dependencies]
 context = "*"
