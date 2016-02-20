@@ -168,9 +168,31 @@ mod tests {
         assert_eq!(mem::size_of::<Context>(), mem::size_of::<*const c_void>());
     }
 
+    // This test ensure that stack frames are aligned by at least 16 bytes.
+    // This is important as some compilers including rustc assume a stack frame alignment of 16
+    // bytes to use SSE with fixed offsets instead of aligning the frame for every function call.
+    #[test]
+    fn stack_alignment() {
+        extern "C" fn context_function(t: Transfer) -> ! {
+            let i = [0u8; 512];
+            assert_eq!(&i as *const _ as usize % 16, 0);
+
+            t.context.resume(0);
+            unreachable!();
+        }
+
+        let stack = ProtectedFixedSizeStack::default();
+        assert_eq!(stack.top() as usize % 16, 0);
+        assert_eq!(stack.bottom() as usize % 16, 0);
+
+        let t = Transfer::new(Context::new(&stack, context_function), 0);
+
+        t.context.resume(0);
+    }
+
     #[test]
     fn number_generator() {
-        extern "C" fn number_generator(mut t: Transfer) -> ! {
+        extern "C" fn context_function(mut t: Transfer) -> ! {
             for i in 0usize.. {
                 assert_eq!(t.data, i);
                 t = t.context.resume(i);
@@ -180,7 +202,7 @@ mod tests {
         }
 
         let stack = ProtectedFixedSizeStack::default();
-        let mut t = Transfer::new(Context::new(&stack, number_generator), 0);
+        let mut t = Transfer::new(Context::new(&stack, context_function), 0);
 
         for i in 0..10usize {
             t = t.context.resume(i);

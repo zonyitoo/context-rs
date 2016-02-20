@@ -33,7 +33,7 @@ _make_fcontext:
 
     /* reserve space for context-data on context-stack */
     /* on context-function entry: (ESP -0x4) % 8 == 0 */
-    leal  -0x24(%eax), %eax
+    leal  -0x28(%eax), %eax
 
     /* thrid arg of make_fcontext() == address of context-function */
     /* stored in EBX */
@@ -63,7 +63,7 @@ _make_fcontext:
     addl  $finish-2b, %ecx
     /* save address of finish as return-address for context-function */
     /* will be entered after context-function returns */
-    movl  %ecx, 0xc(%eax) 
+    movl  %ecx, 0xc(%eax)
 
     ret /* return pointer to context-data */
 
