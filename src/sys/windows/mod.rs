@@ -86,11 +86,7 @@ pub fn page_size() -> usize {
 
 // Windows does not seem to provide a stack limit API
 pub fn min_stack_size() -> usize {
-    if cfg!(target_arch = "x86_64") {
-        8 * 1024
-    } else {
-        4 * 1024
-    }
+    page_size()
 }
 
 // Windows does not seem to provide a stack limit API

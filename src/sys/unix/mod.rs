@@ -77,7 +77,7 @@ pub fn page_size() -> usize {
 }
 
 pub fn min_stack_size() -> usize {
-    libc::SIGSTKSZ
+    cmp::max(libc::SIGSTKSZ, page_size())
 }
 
 pub fn max_stack_size() -> usize {
