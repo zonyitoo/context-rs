@@ -174,10 +174,8 @@ mod tests {
     #[test]
     fn stack_alignment() {
         extern "C" fn context_function(t: Transfer) -> ! {
-            let i = [0u8; 512];
-            assert_eq!(&i as *const _ as usize % 16, 0);
-
-            t.context.resume(0);
+            let i: [u8; 512] = unsafe { mem::uninitialized() };
+            t.context.resume(&i as *const _ as usize % 16);
             unreachable!();
         }
 
@@ -185,9 +183,9 @@ mod tests {
         assert_eq!(stack.top() as usize % 16, 0);
         assert_eq!(stack.bottom() as usize % 16, 0);
 
-        let t = Transfer::new(Context::new(&stack, context_function), 0);
-
-        t.context.resume(0);
+        let mut t = Transfer::new(Context::new(&stack, context_function), 0);
+        t = t.context.resume(0);
+        assert_eq!(t.data, 0);
     }
 
     #[test]
