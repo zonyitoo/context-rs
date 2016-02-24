@@ -17,7 +17,7 @@ fn main() {
     let is_win = is_win_gnu || is_win_msvc;
 
     let arch = match target.split('-').next().unwrap() {
-        "arm" => "arm",
+        "arm" | "armv7" | "armv7s" => "arm",
         "arm64" | "aarch64" => "arm64",
         "x86" | "i386" | "i486" | "i586" | "i686" => "i386",
         "mips" | "mipsel" => "mips32",
