@@ -6,7 +6,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use std::os::raw::c_void;
-use std::ptr;
+use std::fmt;
 
 use stack::Stack;
 
@@ -19,7 +19,7 @@ extern "C" {
     /// * `size` - The size of the stack.
     /// * `f`    - A function to be invoked on the first call to jump_fcontext(this, _).
     #[inline(never)]
-    fn make_fcontext(sp: *mut c_void, size: usize, f: ContextFn) -> *const c_void;
+    fn make_fcontext(sp: *mut c_void, size: usize, f: ContextFn) -> &'static c_void;
 
     /// Yields the execution to another `Context`.
     ///
@@ -28,7 +28,7 @@ extern "C" {
     /// * `p`  - An arbitrary argument that will be set as the `data` field
     ///          of the `Transfer` object passed to the other Context.
     #[inline(never)]
-    fn jump_fcontext(to: *const c_void, p: usize) -> Transfer;
+    fn jump_fcontext(to: &'static c_void, p: usize) -> Transfer;
 
     /// Yields the execution to another `Context` and executes a function "ontop" of it's stack.
     ///
@@ -38,7 +38,7 @@ extern "C" {
     ///          of the `Transfer` object passed to the other Context.
     /// * `f`  - A function to be invoked on `to` before returning.
     #[inline(never)]
-    fn ontop_fcontext(to: *const c_void, p: usize, f: ResumeOntopFn) -> Transfer;
+    fn ontop_fcontext(to: &'static c_void, p: usize, f: ResumeOntopFn) -> Transfer;
 }
 
 /// Functions of this signature are used as the entry point for a new `Context`.
@@ -57,21 +57,14 @@ pub type ResumeOntopFn = extern "C" fn(t: Transfer) -> Transfer;
 /// # Examples
 ///
 /// See [examples/basic.rs](https://github.com/zonyitoo/context-rs/blob/master/examples/basic.rs)
+// The reference is using 'static because we can't possibly imply the
+// lifetime of the Context instances returned by resume() anyways.
 #[repr(C)]
-#[derive(Debug, Eq, PartialEq)]
-pub struct Context(*const c_void);
+pub struct Context(&'static c_void);
 
 // NOTE: Rustc is kinda dumb and introduces a overhead of up to 500% compared to the asm methods
 //       if we don't explicitely inline them or use LTO (e.g.: 3ns/iter VS. 18ns/iter on i7 3770).
 impl Context {
-    /// Returns a `Context` struct cont.
-    ///
-    /// This method is used in combination with `Transfer::empty()`.
-    #[inline(always)]
-    pub unsafe fn empty() -> Context {
-        Context(ptr::null_mut())
-    }
-
     /// Creates a new `Context` prepared to execute `f` at the beginning of `stack`.
     ///
     /// `f` is not executed until the first call to `resume()`.
@@ -118,6 +111,12 @@ impl Context {
 }
 
 /// This is the return value by `Context::resume()` and `Context::resume_ontop()`.
+impl fmt::Debug for Context {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Context({:p})", self.0)
+    }
+}
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct Transfer {
@@ -135,20 +134,6 @@ impl Transfer {
     pub fn new(context: Context, data: usize) -> Transfer {
         Transfer {
             context: context,
-            data: data,
-        }
-    }
-
-    /// Returns a `Transfer` struct with the `context` member set to a null-pointer reference.
-    ///
-    /// This method can be used if there is a need to return a `Transfer`
-    /// struct but there is no `Context` left to be returned.
-    /// This is for instance the case if you use `resume_ontop()` to destroy
-    /// the stack as can be seen in the deallocate_ontop() test.
-    #[inline(always)]
-    pub unsafe fn empty(data: usize) -> Transfer {
-        Transfer {
-            context: Context::empty(),
             data: data,
         }
     }
