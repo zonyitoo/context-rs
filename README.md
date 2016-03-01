@@ -10,6 +10,8 @@ library and thus provides _the building blocks for higher-level abstractions,
 like coroutines, cooperative threads (userland threads) or
 an equivalent to C# keyword yield in C++._
 
+[**API documentation**](https://crates.fyi/crates/context/1.0.0/)
+
 ## Usage
 
 To use `context`, first add this to your `Cargo.toml`:
