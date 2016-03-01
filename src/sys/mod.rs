@@ -5,6 +5,8 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::cmp;
+
 #[cfg(unix)]
 mod unix;
 
@@ -12,7 +14,6 @@ mod unix;
 pub use self::unix::{
     allocate_stack,
     deallocate_stack,
-    default_stack_size,
     max_stack_size,
     min_stack_size,
     page_size,
@@ -26,9 +27,15 @@ mod windows;
 pub use self::windows::{
     allocate_stack,
     deallocate_stack,
-    default_stack_size,
     max_stack_size,
     min_stack_size,
     page_size,
     protect_stack,
 };
+
+pub fn default_stack_size() -> usize {
+    let size = self::min_stack_size() * 8;
+    let max_stack_size = self::max_stack_size();
+
+    cmp::min(size, max_stack_size)
+}

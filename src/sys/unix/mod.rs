@@ -5,7 +5,6 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::cmp;
 use std::io;
 use std::mem;
 use std::os::raw::c_void;
@@ -29,7 +28,7 @@ pub fn allocate_stack(size: usize) -> io::Result<Stack> {
 
     let ptr = unsafe { libc::mmap(NULL, size, PROT, TYPE, -1, 0) };
 
-    if ptr == NULL {
+    if ptr == libc::MAP_FAILED {
         Err(io::Error::last_os_error())
     } else {
         Ok(Stack::new((ptr as usize + size) as *mut c_void, ptr as *mut c_void))
@@ -77,7 +76,8 @@ pub fn page_size() -> usize {
 }
 
 pub fn min_stack_size() -> usize {
-    // Previously libc::SIGSTKSZ has been used but that yields values which vary greatly between platforms
+    // Previously libc::SIGSTKSZ has been used for this, but it proofed to be very unreliable,
+    // because the resulting values varied greatly between platforms.
     page_size()
 }
 
@@ -110,11 +110,4 @@ pub fn max_stack_size() -> usize {
     }
 
     ret
-}
-
-pub fn default_stack_size() -> usize {
-    let size = min_stack_size() * 8;
-    let max_stack_size = max_stack_size();
-
-    cmp::min(size, max_stack_size)
 }

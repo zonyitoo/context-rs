@@ -9,6 +9,7 @@ use std::io;
 use std::mem;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
+use std::usize;
 
 use kernel32;
 use winapi;
@@ -91,9 +92,5 @@ pub fn min_stack_size() -> usize {
 
 // Windows does not seem to provide a stack limit API
 pub fn max_stack_size() -> usize {
-    1024 * 1024 * 1024
-}
-
-pub fn default_stack_size() -> usize {
-    min_stack_size().saturating_mul(8)
+    usize::MAX
 }

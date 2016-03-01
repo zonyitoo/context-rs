@@ -85,19 +85,20 @@ impl Stack {
         let page_size = sys::page_size();
         let min_stack_size = sys::min_stack_size();
         let max_stack_size = sys::max_stack_size();
-        let mut add = page_size - 1;
+        let add_shift = if protected {
+            1
+        } else {
+            0
+        };
+        let add = page_size << add_shift;
 
         if size < min_stack_size {
             size = min_stack_size;
         }
 
-        if protected {
-            add = add + page_size;
-        }
+        size = (size - 1) & !(page_size - 1);
 
-        if let Some(mut size) = size.checked_add(add) {
-            size = size & !(page_size - 1);
-
+        if let Some(size) = size.checked_add(add) {
             if size <= max_stack_size {
                 let mut ret = sys::allocate_stack(size);
 
@@ -107,11 +108,11 @@ impl Stack {
                     }
                 }
 
-                return ret.map_err(|err| StackError::IoError(err));
+                return ret.map_err(StackError::IoError);
             }
         }
 
-        Err(StackError::ExceedsMaximumSize(max_stack_size - page_size))
+        Err(StackError::ExceedsMaximumSize(max_stack_size - add))
     }
 }
 
@@ -225,12 +226,16 @@ mod tests {
 
     #[test]
     fn stack_size_too_large() {
-        match FixedSizeStack::new(sys::max_stack_size().saturating_add(1)) {
-            Err(StackError::ExceedsMaximumSize(..)) => {}
-            _ => panic!(),
+        let stack_size = sys::max_stack_size() & !(sys::page_size() - 1);
+
+        match FixedSizeStack::new(stack_size) {
+            Err(StackError::ExceedsMaximumSize(..)) => panic!(),
+            _ => {}
         }
 
-        match ProtectedFixedSizeStack::new(sys::max_stack_size().saturating_add(1)) {
+        let stack_size = stack_size + 1;
+
+        match FixedSizeStack::new(stack_size) {
             Err(StackError::ExceedsMaximumSize(..)) => {}
             _ => panic!(),
         }
