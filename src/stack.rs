@@ -1,233 +1,245 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
+// Copyright 2016 coroutine-rs Developers
 //
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+// Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
+// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// copied, modified, or distributed except according to those terms.
 
-use std::ptr;
-use std::sync::atomic;
-use std::env;
-use std::fmt;
 use std::io;
+use std::ops::Deref;
+use std::os::raw::c_void;
 
-use libc;
+use sys;
 
-use memmap::{Mmap, MmapOptions, Protection};
+/// Error type returned by stack allocation methods.
+#[derive(Debug)]
+pub enum StackError {
+    /// Contains the maximum amount of memory allowed to be allocated as stack space.
+    ExceedsMaximumSize(usize),
 
-/// A task's stack. The name "Stack" is a vestige of segmented stacks.
-pub struct Stack {
-    buf: Option<Mmap>,
-    min_size: usize,
+    /// Returned if some kind of I/O error happens during allocation.
+    IoError(io::Error),
 }
 
-impl fmt::Debug for Stack {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "Stack {} buf: ", "{"));
-        match self.buf {
-            Some(ref map) => try!(write!(f, "Some({:#x}), ", map.ptr() as libc::uintptr_t)),
-            None => try!(write!(f, "None, ")),
-        }
-        write!(f, "min_size: {:?} {}", self.min_size, "}")
-    }
+/// Represents any kind of stack memory.
+///
+/// `FixedSizeStack` as well as `ProtectedFixedSizeStack`
+/// can be used to allocate actual stack space.
+#[derive(Debug)]
+pub struct Stack {
+    top: *mut c_void,
+    bottom: *mut c_void,
 }
 
 impl Stack {
-    /// Allocate a new stack of `size`. If size = 0, this will fail. Use
-    /// `dummy_stack` if you want a zero-sized stack.
-    pub fn new(size: usize) -> Result<Stack, StackError> {
-        // Map in a stack. Eventually we might be able to handle stack
-        // allocation failure, which would fail to spawn the task. But there's
-        // not many sensible things to do on OOM.  Failure seems fine (and is
-        // what the old stack allocation did).
-        let options = MmapOptions { stack: true };
-        let stack = match Mmap::anonymous_with_options(size, Protection::ReadCopy, options) {
-            Ok(map) => map,
-            Err(e) => return Err(StackError::MmapError(e)),
-        };
+    /// Creates a (non-owning) representation of some stack memory.
+    #[inline]
+    pub fn new(top: *mut c_void, bottom: *mut c_void) -> Stack {
+        debug_assert!(top >= bottom);
 
-        // Change the last page to be inaccessible. This is to provide safety;
-        // when an FFI function overflows it will (hopefully) hit this guard
-        // page. It isn't guaranteed, but that's why FFI is unsafe. buf.data is
-        // guaranteed to be aligned properly.
-        if !protect_last_page(&stack) {
-            error!("Could not memory-protect guard page. stack={:?}",
-                   stack.ptr());
-
-            Err(StackError::MProtectError(MProtectError {
-                stack: Stack {
-                    buf: Some(stack),
-                    min_size: size,
-                },
-            }))
-        } else {
-            Ok(Stack {
-                buf: Some(stack),
-                min_size: size,
-            })
-        }
-    }
-
-    /// Create a 0-length stack which starts (and ends) at 0.
-    pub unsafe fn dummy_stack() -> Stack {
         Stack {
-            buf: None,
-            min_size: 0,
+            top: top,
+            bottom: bottom,
         }
     }
 
-    /// Return the address of the guard page
-    pub fn guard(&self) -> *const usize {
-        (self.start() as usize + page_size()) as *const usize
+    /// Returns the top of the stack from which on it grows downwards towards bottom().
+    #[inline]
+    pub fn top(&self) -> *mut c_void {
+        self.top
     }
 
-    /// Point to the low end of the allocated stack
-    pub fn start(&self) -> *const usize {
-        self.buf
-            .as_ref()
-            .map(|m| m.ptr() as *const usize)
-            .unwrap_or(ptr::null())
+    /// Returns the bottom of the stack and thus it's end.
+    #[inline]
+    pub fn bottom(&self) -> *mut c_void {
+        self.bottom
     }
 
-    /// Point one usize beyond the high end of the allocated stack
-    pub fn end(&self) -> *const usize {
-        self.buf
-            .as_ref()
-            .map(|buf| unsafe { buf.ptr().offset(buf.len() as isize) as *const usize })
-            .unwrap_or(ptr::null())
-    }
-}
-
-#[cfg(unix)]
-fn protect_last_page(stack: &Mmap) -> bool {
-    unsafe {
-        // This may seem backwards: the start of the segment is the last page?
-        // Yes! The stack grows from higher addresses (the end of the allocated
-        // block) to lower addresses (the start of the allocated block).
-        let last_page = stack.ptr() as *mut libc::c_void;
-        libc::mprotect(last_page, page_size() as libc::size_t, libc::PROT_NONE) != -1
-    }
-}
-
-#[cfg(windows)]
-fn protect_last_page(stack: &Mmap) -> bool {
-    unsafe {
-        // see above
-        let last_page = stack.ptr() as *mut libc::c_void;
-        let mut old_prot: libc::DWORD = 0;
-        libc::VirtualProtect(last_page,
-                             page_size() as libc::SIZE_T,
-                             libc::PAGE_NOACCESS,
-                             &mut old_prot as libc::LPDWORD) != 0
-    }
-}
-
-#[derive(Debug)]
-pub struct StackPool {
-    // Ideally this would be some data structure that preserved ordering on
-    // Stack.min_size.
-    stacks: Vec<Stack>,
-}
-
-impl StackPool {
-    pub fn new() -> StackPool {
-        StackPool { stacks: vec![] }
+    /// Returns the size of the stack between top() and bottom().
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.top as usize - self.bottom as usize
     }
 
-    pub fn take_stack(&mut self, min_size: usize) -> Stack {
-        // Ideally this would be a binary search
-        match self.stacks.iter().position(|s| min_size <= s.min_size) {
-            Some(idx) => self.stacks.swap_remove(idx),
-            None => Stack::new(min_size).unwrap(),
+    /// Returns the minimal stack size allowed by the current platform.
+    #[inline]
+    pub fn min_size() -> usize {
+        sys::min_stack_size()
+    }
+
+    /// Returns the maximum stack size allowed by the current platform.
+    #[inline]
+    pub fn max_size() -> usize {
+        sys::max_stack_size()
+    }
+
+    /// Returns a implementation defined default stack size.
+    ///
+    /// This value can vary greatly between platforms, but is usually only a couple
+    /// memory pages in size and enough for most use-cases with little recursion.
+    /// It's usually a better idea to specifiy an explicit stack size instead.
+    #[inline]
+    pub fn default_size() -> usize {
+        sys::default_stack_size()
+    }
+
+    /// Allocates a new stack of `size`.
+    fn allocate(mut size: usize, protected: bool) -> Result<Stack, StackError> {
+        let page_size = sys::page_size();
+        let min_stack_size = sys::min_stack_size();
+        let max_stack_size = sys::max_stack_size();
+        let add_shift = if protected {
+            1
+        } else {
+            0
+        };
+        let add = page_size << add_shift;
+
+        if size < min_stack_size {
+            size = min_stack_size;
         }
-    }
 
-    pub fn give_stack(&mut self, stack: Stack) {
-        if self.stacks.len() <= max_cached_stacks() {
-            self.stacks.push(stack)
+        size = (size - 1) & !(page_size - 1);
+
+        if let Some(size) = size.checked_add(add) {
+            if size <= max_stack_size {
+                let mut ret = sys::allocate_stack(size);
+
+                if protected {
+                    if let Ok(stack) = ret {
+                        ret = sys::protect_stack(&stack);
+                    }
+                }
+
+                return ret.map_err(StackError::IoError);
+            }
         }
+
+        Err(StackError::ExceedsMaximumSize(max_stack_size - add))
     }
 }
 
-fn max_cached_stacks() -> usize {
-    static mut AMT: atomic::AtomicUsize = atomic::ATOMIC_USIZE_INIT;
-    match unsafe { AMT.load(atomic::Ordering::SeqCst) } {
-        0 => {}
-        n => return n - 1,
-    }
-    let amt = env::var("RUST_MAX_CACHED_STACKS").ok().and_then(|s| s.parse().ok());
-    // This default corresponds to 20M of cache per scheduler (at the
-    // default size).
-    let amt = amt.unwrap_or(10);
-    // 0 is our sentinel value, so ensure that we'll never see 0 after
-    // initialization has run
-    unsafe {
-        AMT.store(amt + 1, atomic::Ordering::SeqCst);
-    }
-    return amt;
-}
-
-#[cfg(unix)]
-fn page_size() -> usize {
-    unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
-}
-
-#[cfg(windows)]
-fn page_size() -> usize {
-    use std::mem;
-
-    unsafe {
-        let mut info = mem::zeroed();
-        libc::GetSystemInfo(&mut info);
-        info.dwPageSize as usize
-    }
-}
-
+/// A very simple and straightforward implementation of `Stack`.
+///
+/// Allocates stack space using virtual memory, whose pages will
+/// only be mapped to physical memory if they are used.
+///
+/// _As a general rule it is recommended to use `ProtectedFixedSizeStack` instead._
 #[derive(Debug)]
-pub struct MProtectError {
-    stack: Stack,
-}
+pub struct FixedSizeStack(Stack);
 
-impl MProtectError {
-    /// Use the stack anyway
-    pub unsafe fn into_inner(self) -> Stack {
-        self.stack
+impl FixedSizeStack {
+    /// Allocates a new stack of **at least** `size` bytes.
+    ///
+    /// `size` is rounded up to a multiple of the size of a memory page.
+    pub fn new(size: usize) -> Result<FixedSizeStack, StackError> {
+        Stack::allocate(size, false).map(FixedSizeStack)
     }
 }
 
+impl Deref for FixedSizeStack {
+    type Target = Stack;
+
+    fn deref(&self) -> &Stack {
+        &self.0
+    }
+}
+
+impl Default for FixedSizeStack {
+    fn default() -> FixedSizeStack {
+        FixedSizeStack::new(Stack::default_size())
+            .unwrap_or_else(|err| panic!("Failed to allocate FixedSizeStack with {:?}", err))
+    }
+}
+
+impl Drop for FixedSizeStack {
+    fn drop(&mut self) {
+        sys::deallocate_stack(self.0.bottom(), self.0.len());
+    }
+}
+
+/// A more secure, but slightly slower version of `FixedSizeStack`.
+///
+/// Allocates stack space using virtual memory, whose pages will
+/// only be mapped to physical memory if they are used.
+///
+/// The additional guard page is made protected and inaccessible.
+/// Now if a stack overflow occurs it should (hopefully) hit this guard page and
+/// cause a segmentation fault instead letting the memory being overwritten silently.
+///
+/// _As a general rule it is recommended to use **this** struct to create stack memory._
 #[derive(Debug)]
-pub enum StackError {
-    MmapError(io::Error),
-    MProtectError(MProtectError),
+pub struct ProtectedFixedSizeStack(Stack);
+
+impl ProtectedFixedSizeStack {
+    /// Allocates a new stack of **at least** `size` bytes + one additional guard page.
+    ///
+    /// `size` is rounded up to a multiple of the size of a memory page and
+    /// does not include the size of the guard page itself.
+    pub fn new(size: usize) -> Result<ProtectedFixedSizeStack, StackError> {
+        Stack::allocate(size, true).map(ProtectedFixedSizeStack)
+    }
+}
+
+impl Deref for ProtectedFixedSizeStack {
+    type Target = Stack;
+
+    fn deref(&self) -> &Stack {
+        &self.0
+    }
+}
+
+impl Default for ProtectedFixedSizeStack {
+    fn default() -> ProtectedFixedSizeStack {
+        ProtectedFixedSizeStack::new(Stack::default_size()).unwrap_or_else(|err| {
+            panic!("Failed to allocate ProtectedFixedSizeStack with {:?}", err)
+        })
+    }
+}
+
+impl Drop for ProtectedFixedSizeStack {
+    fn drop(&mut self) {
+        let page_size = sys::page_size();
+        let guard = (self.0.bottom() as usize - page_size) as *mut c_void;
+        let size_with_guard = self.0.len() + page_size;
+        sys::deallocate_stack(guard, size_with_guard);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::StackPool;
+    use std::ptr::write_bytes;
+
+    use super::*;
+    use sys;
 
     #[test]
-    fn stack_pool_caches() {
-        let mut p = StackPool::new();
-        let s = p.take_stack(10);
-        p.give_stack(s);
-        let s = p.take_stack(4);
-        assert_eq!(s.min_size, 10);
-        p.give_stack(s);
-        let s = p.take_stack(14);
-        assert_eq!(s.min_size, 14);
-        p.give_stack(s);
+    fn stack_size_too_small() {
+        let stack = FixedSizeStack::new(0).unwrap();
+        assert_eq!(stack.len(), sys::min_stack_size());
+
+        unsafe { write_bytes(stack.bottom() as *mut u8, 0x1d, stack.len()) };
+
+        let stack = ProtectedFixedSizeStack::new(0).unwrap();
+        assert_eq!(stack.len(), sys::min_stack_size());
+
+        unsafe { write_bytes(stack.bottom() as *mut u8, 0x1d, stack.len()) };
     }
 
     #[test]
-    fn stack_pool_caches_exact() {
-        let mut p = StackPool::new();
-        let s = p.take_stack(10);
-        p.give_stack(s);
+    fn stack_size_too_large() {
+        let stack_size = sys::max_stack_size() & !(sys::page_size() - 1);
 
-        let s = p.take_stack(10);
-        assert_eq!(s.min_size, 10);
+        match FixedSizeStack::new(stack_size) {
+            Err(StackError::ExceedsMaximumSize(..)) => panic!(),
+            _ => {}
+        }
+
+        let stack_size = stack_size + 1;
+
+        match FixedSizeStack::new(stack_size) {
+            Err(StackError::ExceedsMaximumSize(..)) => {}
+            _ => panic!(),
+        }
     }
 }

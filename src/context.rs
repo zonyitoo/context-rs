@@ -1,496 +1,226 @@
-// Copyright 2013-2014 The Rust Project Developers. See the COPYRIGHT
-// file at the top-level directory of this distribution and at
-// http://rust-lang.org/COPYRIGHT.
+// Copyright 2016 coroutine-rs Developers
 //
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
+// Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
+// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+// http://opensource.org/licenses/MIT>, at your option. This file may not be
+// copied, modified, or distributed except according to those terms.
 
-// FIXME: Silence the warning for `Registers`
-#![allow(improper_ctypes)]
+use std::fmt;
+use std::os::raw::c_void;
 
 use stack::Stack;
-use std::usize;
 
-use libc;
-#[cfg(target_arch = "x86_64")]
-use simd;
-
-use sys;
-
-#[derive(Debug)]
-pub struct Context {
-    /// Hold the registers while the task or scheduler is suspended
-    regs: Registers,
-    /// Lower bound and upper bound for the stack
-    stack_bounds: Option<(usize, usize)>,
-}
-
-pub type InitFn = extern "C" fn(usize, *mut libc::c_void) -> !; // first argument is task handle, second is thunk ptr
-
-impl Context {
-    pub fn empty() -> Context {
-        Context {
-            regs: Registers::new(),
-            stack_bounds: None,
-        }
-    }
-
-    /// Create a new context that will resume execution by running start
-    ///
-    /// The `init` function will be run with `arg` and the `start` procedure
-    /// split up into code and env pointers. It is required that the `init`
-    /// function never return.
-    ///
-    /// FIXME: this is basically an awful the interface. The main reason for
-    ///        this is to reduce the number of allocations made when a green
-    ///        task is spawned as much as possible
-    pub fn new(init: InitFn, arg: usize, start: *mut libc::c_void, stack: &mut Stack) -> Context {
-        let mut ctx = Context::empty();
-        ctx.init_with(init, arg, start, stack);
-        ctx
-    }
-
-    pub fn init_with(&mut self,
-                     init: InitFn,
-                     arg: usize,
-                     start: *mut libc::c_void,
-                     stack: &mut Stack) {
-        let sp: *const usize = stack.end();
-        let sp: *mut usize = sp as *mut usize;
-        // Save and then immediately load the current context,
-        // which we will then modify to call the given function when restored
-
-        initialize_call_frame(&mut self.regs, init, arg, start, sp);
-
-        // Scheduler tasks don't have a stack in the "we allocated it" sense,
-        // but rather they run on pthreads stacks. We have complete control over
-        // them in terms of the code running on them (and hopefully they don't
-        // overflow). Additionally, their coroutine stacks are listed as being
-        // zero-length, so that's how we detect what's what here.
-        let stack_base: *const usize = stack.start();
-        self.stack_bounds = if sp as libc::uintptr_t == stack_base as libc::uintptr_t {
-            None
-        } else {
-            Some((stack_base as usize, sp as usize))
-        };
-    }
-
-    /// Switch contexts
-
-    /// Suspend the current execution context and resume another by
-    /// saving the registers values of the executing thread to a Context
-    /// then loading the registers from a previously saved Context.
-    pub fn swap(out_context: &mut Context, in_context: &Context) {
-        debug!("swapping contexts");
-        let out_regs: &mut Registers = match out_context {
-            &mut Context { regs: ref mut r, .. } => r,
-        };
-        let in_regs: &Registers = match in_context {
-            &Context { regs: ref r, .. } => r,
-        };
-
-        debug!("noting the stack limit and doing raw swap");
-
-        unsafe {
-            // Right before we switch to the new context, set the new context's
-            // stack limit in the OS-specified TLS slot. This also  means that
-            // we cannot call any more rust functions after record_stack_bounds
-            // returns because they would all likely fail due to the limit being
-            // invalid for the current task. Lucky for us `rust_swap_registers`
-            // is a C function so we don't have to worry about that!
-            //
-            match in_context.stack_bounds {
-                Some((lo, hi)) => sys::stack::record_rust_managed_stack_bounds(lo, hi),
-                // If we're going back to one of the original contexts or
-                // something that's possibly not a "normal task", then reset
-                // the stack limit to 0 to make morestack never fail
-                None => sys::stack::record_rust_managed_stack_bounds(0, usize::MAX),
-            }
-            rust_swap_registers(out_regs, in_regs)
-        }
-    }
-
-    /// Save the current context.
-    #[inline(always)]
-    pub fn save(context: &mut Context) {
-        let regs: &mut Registers = &mut context.regs;
-
-        unsafe {
-            rust_save_registers(regs);
-        }
-    }
-
-    /// Load the context and switch. This function will never return.
-    ///
-    /// It is equivalent to `Context::swap(&mut dummy_context, &to_context)`.
-    pub fn load(to_context: &Context) -> ! {
-        let regs: &Registers = &to_context.regs;
-
-        unsafe {
-            // Right before we switch to the new context, set the new context's
-            // stack limit in the OS-specified TLS slot. This also  means that
-            // we cannot call any more rust functions after record_stack_bounds
-            // returns because they would all likely fail due to the limit being
-            // invalid for the current task. Lucky for us `rust_swap_registers`
-            // is a C function so we don't have to worry about that!
-            //
-            match to_context.stack_bounds {
-                Some((lo, hi)) => sys::stack::record_rust_managed_stack_bounds(lo, hi),
-                // If we're going back to one of the original contexts or
-                // something that's possibly not a "normal task", then reset
-                // the stack limit to 0 to make morestack never fail
-                None => sys::stack::record_rust_managed_stack_bounds(0, usize::MAX),
-            }
-
-            rust_load_registers(regs);
-        }
-    }
-}
-
+// Requires cdecl calling convention on x86, which is the default for "C" blocks.
 extern "C" {
-    fn rust_swap_registers(out_regs: *mut Registers, in_regs: *const Registers);
-    fn rust_save_registers(out_regs: *mut Registers);
-    fn rust_load_registers(in_regs: *const Registers) -> !;
+    /// Creates a new `Context` ontop of some stack.
+    ///
+    /// # Arguments
+    /// * `sp`   - A pointer to the bottom of the stack.
+    /// * `size` - The size of the stack.
+    /// * `f`    - A function to be invoked on the first call to jump_fcontext(this, _).
+    #[inline(never)]
+    fn make_fcontext(sp: *mut c_void, size: usize, f: ContextFn) -> &'static c_void;
+
+    /// Yields the execution to another `Context`.
+    ///
+    /// # Arguments
+    /// * `to` - A pointer to the `Context` with whom we swap execution.
+    /// * `p`  - An arbitrary argument that will be set as the `data` field
+    ///          of the `Transfer` object passed to the other Context.
+    #[inline(never)]
+    fn jump_fcontext(to: &'static c_void, p: usize) -> Transfer;
+
+    /// Yields the execution to another `Context` and executes a function "ontop" of it's stack.
+    ///
+    /// # Arguments
+    /// * `to` - A pointer to the `Context` with whom we swap execution.
+    /// * `p`  - An arbitrary argument that will be set as the `data` field
+    ///          of the `Transfer` object passed to the other Context.
+    /// * `f`  - A function to be invoked on `to` before returning.
+    #[inline(never)]
+    fn ontop_fcontext(to: &'static c_void, p: usize, f: ResumeOntopFn) -> Transfer;
 }
 
-// Register contexts used in various architectures
-//
-// These structures all represent a context of one task throughout its
-// execution. Each struct is a representation of the architecture's register
-// set. When swapping between tasks, these register sets are used to save off
-// the current registers into one struct, and load them all from another.
-//
-// Note that this is only used for context switching, which means that some of
-// the registers may go unused. For example, for architectures with
-// callee/caller saved registers, the context will only reflect the callee-saved
-// registers. This is because the caller saved registers are already stored
-// elsewhere on the stack (if it was necessary anyway).
-//
-// Additionally, there may be fields on various architectures which are unused
-// entirely because they only reflect what is theoretically possible for a
-// "complete register set" to show, but user-space cannot alter these registers.
-// An example of this would be the segment selectors for x86.
-//
-// These structures/functions are roughly in-sync with the source files inside
-// of src/rt/arch/$arch. The only currently used function from those folders is
-// the `rust_swap_registers` function, but that's only because for now segmented
-// stacks are disabled.
+/// Functions of this signature are used as the entry point for a new `Context`.
+pub type ContextFn = extern "C" fn(t: Transfer) -> !;
 
-#[cfg(target_arch = "x86")]
+/// Functions of this signature are used as the callback while resuming ontop of a `Context`.
+pub type ResumeOntopFn = extern "C" fn(t: Transfer) -> Transfer;
+
+/// A `Context` stores a `ContextFn`'s state of execution, for it to be resumed later.
+///
+/// If we have 2 or more `Context` instances, we can thus easily "freeze" the
+/// current state of execution and explicitely switch to another `Context`.
+/// This `Context` is then resumed exactly where it left of and
+/// can in turn "freeze" and switch to another `Context`.
+///
+/// # Examples
+///
+/// See [examples/basic.rs](https://github.com/zonyitoo/context-rs/blob/master/examples/basic.rs)
+// The reference is using 'static because we can't possibly imply the
+// lifetime of the Context instances returned by resume() anyways.
+#[repr(C)]
+pub struct Context(&'static c_void);
+
+// NOTE: Rustc is kinda dumb and introduces a overhead of up to 500% compared to the asm methods
+//       if we don't explicitely inline them or use LTO (e.g.: 3ns/iter VS. 18ns/iter on i7 3770).
+impl Context {
+    /// Creates a new `Context` prepared to execute `f` at the beginning of `stack`.
+    ///
+    /// `f` is not executed until the first call to `resume()`.
+    #[inline(always)]
+    pub fn new(stack: &Stack, f: ContextFn) -> Context {
+        Context(unsafe { make_fcontext(stack.top(), stack.len(), f) })
+    }
+
+    /// Yields the execution to another `Context`.
+    ///
+    /// The exact behaviour of this method is implementation defined, but the general mechanism is:
+    /// The current state of execution is preserved somewhere and the previously saved state
+    /// in the `Context` pointed to by `self` is restored and executed next.
+    ///
+    /// This behaviour is similiar in spirit to regular function calls with the difference
+    /// that the call to `resume()` only returns when someone resumes the caller in turn.
+    ///
+    /// The returned `Transfer` struct contains the previously active `Context` and
+    /// the `data` argument used to resume the current one.
+    #[inline(always)]
+    pub fn resume(self, data: usize) -> Transfer {
+        unsafe { jump_fcontext(self.0, data) }
+    }
+
+    /// Yields the execution to another `Context` and executes a function "ontop" of it's stack.
+    ///
+    /// This method identical to `resume()` with a minor difference:
+    ///
+    /// The argument `f` is executed right after the targeted `Context`, pointed to by `self`,
+    /// is woken up, but before it returns from it's call to `resume()`.
+    /// `f` now gets passed the `Transfer` struct which would normally be returned by `resume()`
+    /// and is allowed to inspect and modify it. The `Transfer` struct `f` returns is then
+    /// finally the one returned by `resume()` in the targeted `Context`.
+    ///
+    /// This behaviour can be used to either execute additional code or *map* the `Transfer` struct
+    /// to another one before it's returned, without the targeted `Context` giving it's consent.
+    /// For instance it can be used to unwind the stack of an unfinished `Context`,
+    /// by calling this method with a function that panics, or to deallocate the own stack,
+    /// by deferring the actual deallocation until we jumped to another, safe `Context`.
+    #[inline(always)]
+    pub fn resume_ontop(self, data: usize, f: ResumeOntopFn) -> Transfer {
+        unsafe { ontop_fcontext(self.0, data, f) }
+    }
+}
+
+impl fmt::Debug for Context {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Context({:p})", self.0)
+    }
+}
+
+/// Contains the previously active `Context` and the `data` passed to resume the current one and
+/// is used as the return value by `Context::resume()` and `Context::resume_ontop()`
 #[repr(C)]
 #[derive(Debug)]
-struct Registers {
-    eax: u32,
-    ebx: u32,
-    ecx: u32,
-    edx: u32,
-    ebp: u32,
-    esi: u32,
-    edi: u32,
-    esp: u32,
-    cs: u16,
-    ds: u16,
-    ss: u16,
-    es: u16,
-    fs: u16,
-    gs: u16,
-    eflags: u32,
-    eip: u32,
+pub struct Transfer {
+    /// The previously executed `Context` which yielded to resume the current one.
+    pub context: Context,
+
+    /// The `data` which was passed to `Context::resume()` or
+    /// `Context::resume_ontop()` to resume the current `Context`.
+    pub data: usize,
 }
 
-#[cfg(target_arch = "x86")]
-impl Registers {
-    fn new() -> Registers {
-        Registers {
-            eax: 0,
-            ebx: 0,
-            ecx: 0,
-            edx: 0,
-            ebp: 0,
-            esi: 0,
-            edi: 0,
-            esp: 0,
-            cs: 0,
-            ds: 0,
-            ss: 0,
-            es: 0,
-            fs: 0,
-            gs: 0,
-            eflags: 0,
-            eip: 0,
+impl Transfer {
+    /// Returns a new `Transfer` struct with the members set to their respective arguments.
+    #[inline(always)]
+    pub fn new(context: Context, data: usize) -> Transfer {
+        Transfer {
+            context: context,
+            data: data,
         }
     }
-}
-
-#[cfg(target_arch = "x86")]
-fn initialize_call_frame(regs: &mut Registers,
-                         fptr: InitFn,
-                         arg: usize,
-                         thunkptr: *mut libc::c_void,
-                         sp: *mut usize) {
-    // x86 has interesting stack alignment requirements, so do some alignment
-    // plus some offsetting to figure out what the actual stack should be.
-    let sp = align_down(sp);
-    let sp = mut_offset(sp, -4); // dunno why offset 4, TODO
-/*
-    |----------------+----------------------+---------------+-------|
-    | position(high) | data                 | comment       |       |
-    |----------------+----------------------+---------------+-------|
-    |             +3 | null                 |               |       |
-    |             +2 | boxed_thunk_ptr      |               |       |
-    |             +1 | argptr               | taskhandleptr |       |
-    |              0 | retaddr(0) no return |               | <- sp |
-    |----------------+----------------------+---------------+-------|
-*/
-    unsafe { *mut_offset(sp, 2) = thunkptr as usize };
-    unsafe { *mut_offset(sp, 1) = arg as usize };
-    unsafe { *mut_offset(sp, 0) = 0 }; // The final return address, 0 because of !
-
-    regs.esp = sp as u32;
-    regs.eip = fptr as u32;
-
-    // Last base pointer on the stack is 0
-    regs.ebp = 0;
-}
-
-// windows requires saving more registers (both general and XMM), so the windows
-// register context must be larger.
-#[cfg(all(windows, target_arch = "x86_64"))]
-#[repr(C)]
-#[derive(Debug)]
-struct Registers {
-    gpr: [libc::uintptr_t; 14],
-    _xmm: [simd::u32x4; 10],
-}
-
-#[cfg(all(windows, target_arch = "x86_64"))]
-impl Registers {
-    fn new() -> Registers {
-        Registers {
-            gpr: [0; 14],
-            _xmm: [simd::u32x4::new(0, 0, 0, 0); 10],
-        }
-    }
-}
-
-#[cfg(all(not(windows), target_arch = "x86_64"))]
-#[repr(C)]
-#[derive(Debug)]
-struct Registers {
-    gpr: [libc::uintptr_t; 10],
-    _xmm: [simd::u32x4; 6],
-}
-
-#[cfg(all(not(windows), target_arch = "x86_64"))]
-impl Registers {
-    fn new() -> Registers {
-        Registers {
-            gpr: [0; 10],
-            _xmm: [simd::u32x4::new(0, 0, 0, 0); 6],
-        }
-    }
-}
-
-#[cfg(target_arch = "x86_64")]
-fn initialize_call_frame(regs: &mut Registers,
-                         fptr: InitFn,
-                         arg: usize,
-                         thunkptr: *mut libc::c_void,
-                         sp: *mut usize) {
-    extern "C" {
-        fn rust_bootstrap_green_task();
-    } // use an indirection because the call contract differences between windows and linux
-    // TODO: use rust's condition compile attribute instead
-
-    // Redefinitions from rt/arch/x86_64/regs.h
-    static RUSTRT_RSP: usize = 1;
-    static RUSTRT_IP: usize = 8;
-    static RUSTRT_RBP: usize = 2;
-    static RUSTRT_R12: usize = 4;
-    static RUSTRT_R13: usize = 5;
-    static RUSTRT_R14: usize = 6;
-    // static RUSTRT_R15: usize = 7;
-
-    let sp = align_down(sp);
-    let sp = mut_offset(sp, -1);
-
-    // The final return address. 0 indicates the bottom of the stack
-    unsafe {
-        *sp = 0;
-    }
-
-    debug!("creating call framenn");
-    debug!("fptr {:#x}", fptr as libc::uintptr_t);
-    debug!("arg {:#x}", arg);
-    debug!("sp {:?}", sp);
-
-    // These registers are frobbed by rust_bootstrap_green_task into the right
-    // location so we can invoke the "real init function", `fptr`.
-    regs.gpr[RUSTRT_R12] = arg as libc::uintptr_t;
-    regs.gpr[RUSTRT_R13] = thunkptr as libc::uintptr_t;
-    regs.gpr[RUSTRT_R14] = fptr as libc::uintptr_t;
-
-    // These registers are picked up by the regular context switch paths. These
-    // will put us in "mostly the right context" except for frobbing all the
-    // arguments to the right place. We have the small trampoline code inside of
-    // rust_bootstrap_green_task to do that.
-    regs.gpr[RUSTRT_RSP] = sp as libc::uintptr_t;
-    regs.gpr[RUSTRT_IP] = rust_bootstrap_green_task as libc::uintptr_t;
-
-    // Last base pointer on the stack should be 0
-    regs.gpr[RUSTRT_RBP] = 0;
-}
-
-#[cfg(target_arch = "arm")]
-#[repr(C)]
-#[derive(Debug)]
-struct Registers([libc::uintptr_t; 32]);
-
-#[cfg(target_arch = "arm")]
-impl Registers {
-    fn new() -> Registers {
-        Registers([0; 32])
-    }
-}
-
-#[cfg(target_arch = "arm")]
-fn initialize_call_frame(regs: &mut Registers,
-                         fptr: InitFn,
-                         arg: usize,
-                         thunkptr: *mut libc::c_void,
-                         sp: *mut usize) {
-    extern "C" {
-        fn rust_bootstrap_green_task();
-    } // same as the x64 arch
-
-    let sp = align_down(sp);
-    // sp of arm eabi is 8-byte aligned
-    let sp = mut_offset(sp, -2);
-
-    // The final return address. 0 indicates the bottom of the stack
-    unsafe {
-        *sp = 0;
-    }
-
-    let &mut Registers(ref mut regs) = regs;
-
-    // ARM uses the same technique as x86_64 to have a landing pad for the start
-    // of all new green tasks. Neither r1/r2 are saved on a context switch, so
-    // the shim will copy r3/r4 into r1/r2 and then execute the function in r5
-    regs[0] = arg as libc::uintptr_t;              // r0
-    regs[3] = thunkptr as libc::uintptr_t;         // r3
-    regs[5] = fptr as libc::uintptr_t;             // r5
-    regs[13] = sp as libc::uintptr_t;                          // #52 sp, r13
-    regs[14] = rust_bootstrap_green_task as libc::uintptr_t;   // #56 pc, r14 --> lr
-}
-
-#[cfg(any(target_arch = "mips",
-          target_arch = "mipsel"))]
-#[repr(C)]
-#[derive(Debug)]
-struct Registers([libc::uintptr_t; 32]);
-
-#[cfg(any(target_arch = "mips",
-          target_arch = "mipsel"))]
-impl Registers {
-    fn new() -> Registers {
-        Registers([0; 32])
-    }
-}
-
-#[cfg(any(target_arch = "mips",
-          target_arch = "mipsel"))]
-fn initialize_call_frame(regs: &mut Registers,
-                         fptr: InitFn,
-                         arg: usize,
-                         thunkptr: *mut libc::c_void,
-                         sp: *mut usize) {
-    let sp = align_down(sp);
-    // sp of mips o32 is 8-byte aligned
-    let sp = mut_offset(sp, -2);
-
-    // The final return address. 0 indicates the bottom of the stack
-    unsafe {
-        *sp = 0;
-    }
-
-    let &mut Registers(ref mut regs) = regs;
-
-    regs[4] = arg as libc::uintptr_t;
-    regs[5] = thunkptr as libc::uintptr_t;
-    regs[29] = sp as libc::uintptr_t;
-    regs[25] = fptr as libc::uintptr_t;
-    regs[31] = fptr as libc::uintptr_t;
-}
-
-fn align_down(sp: *mut usize) -> *mut usize {
-    let sp = (sp as usize) & !(16 - 1);
-    sp as *mut usize
-}
-
-// ptr::mut_offset is positive isizes only
-#[inline]
-fn mut_offset<T>(ptr: *mut T, count: isize) -> *mut T {
-    // use std::mem::size_of;
-    // (ptr as isize + count * (size_of::<T>() as isize)) as *mut T
-    unsafe { ptr.offset(count) }
 }
 
 #[cfg(test)]
-mod test {
-    use libc;
+mod tests {
+    use std::mem;
+    use std::os::raw::c_void;
 
-    use std::mem::transmute;
-
-    use stack::Stack;
-    use context::Context;
-
-    const MIN_STACK: usize = 2 * 1024 * 1024;
-
-    extern "C" fn init_fn(arg: usize, f: *mut libc::c_void) -> ! {
-        let func: fn() = unsafe { transmute(f) };
-        func();
-
-        let ctx: &Context = unsafe { transmute(arg) };
-        Context::load(ctx);
-    }
+    use stack::ProtectedFixedSizeStack;
+    use super::*;
 
     #[test]
-    fn test_swap_context() {
-        let mut cur = Context::empty();
-
-        fn callback() {}
-
-        let mut stk = Stack::new(MIN_STACK).unwrap();
-        let ctx = Context::new(init_fn,
-                               unsafe { transmute(&cur) },
-                               unsafe { transmute(callback) },
-                               &mut stk);
-
-        Context::swap(&mut cur, &ctx);
+    fn type_sizes() {
+        assert_eq!(mem::size_of::<Context>(), mem::size_of::<usize>());
+        assert_eq!(mem::size_of::<Context>(), mem::size_of::<*const c_void>());
     }
 
+    #[cfg(feature = "nightly")]
     #[test]
-    fn test_load_save_context() {
-        let mut cur = Context::empty();
+    fn stack_alignment() {
+        #[allow(non_camel_case_types)]
+        #[repr(simd)]
+        struct u8x16(u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8);
 
-        fn callback() {}
+        extern "C" fn context_function(t: Transfer) -> ! {
+            // If we do not use an array in combination with mem::uninitialized(),
+            // Rust will still generate SSE/NEON operations for the assignment
+            // and make the test crash with a segmentation fault due to misalignment.
+            let data: [u8x16; 1] = unsafe { mem::uninitialized() };
+            let addr = &data as *const _ as usize;
 
-        let mut stk = Stack::new(MIN_STACK).unwrap();
-        let ctx = Context::new(init_fn,
-                               unsafe { transmute(&cur) },
-                               unsafe { transmute(callback) },
-                               &mut stk);
-
-        let mut _no_use = Box::new(true);
-
-        Context::save(&mut cur);
-        if *_no_use {
-            *_no_use = false;
-            Context::load(&ctx);
+            t.context.resume(addr % mem::align_of::<u8x16>());
+            unreachable!();
         }
+
+        let stack = ProtectedFixedSizeStack::default();
+        let mut t = Transfer::new(Context::new(&stack, context_function), 0);
+
+        t = t.context.resume(0);
+        assert_eq!(t.data, 0);
+    }
+
+    #[test]
+    fn number_generator() {
+        extern "C" fn context_function(mut t: Transfer) -> ! {
+            for i in 0usize.. {
+                assert_eq!(t.data, i);
+                t = t.context.resume(i);
+            }
+
+            unreachable!();
+        }
+
+        let stack = ProtectedFixedSizeStack::default();
+        let mut t = Transfer::new(Context::new(&stack, context_function), 0);
+
+        for i in 0..10usize {
+            t = t.context.resume(i);
+            assert_eq!(t.data, i);
+
+            if t.data == 9 {
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn resume_ontop() {
+        extern "C" fn resume(t: Transfer) -> ! {
+            assert_eq!(t.data, 0);
+            t.context.resume_ontop(1, resume_ontop);
+            unreachable!();
+        }
+
+        extern "C" fn resume_ontop(mut t: Transfer) -> Transfer {
+            assert_eq!(t.data, 1);
+            t.data = 123;
+            t
+        }
+
+        let stack = ProtectedFixedSizeStack::default();
+        let mut t = Transfer::new(Context::new(&stack, resume), 0);
+
+        t = t.context.resume(0);
+        assert_eq!(t.data, 123);
     }
 }
