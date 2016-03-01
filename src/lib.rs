@@ -5,6 +5,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+#![cfg_attr(feature = "nightly", feature(repr_simd))]
 #![deny(missing_docs)]
 
 //! This project provides an easy interface to the famous **Boost.Context** library

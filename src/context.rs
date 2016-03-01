@@ -168,22 +168,27 @@ mod tests {
         assert_eq!(mem::size_of::<Context>(), mem::size_of::<*const c_void>());
     }
 
-    // This test ensure that stack frames are aligned by at least 16 bytes.
-    // This is important as some compilers including rustc assume a stack frame alignment of 16
-    // bytes to use SSE with fixed offsets instead of aligning the frame for every function call.
+    #[cfg(feature = "nightly")]
     #[test]
     fn stack_alignment() {
+        #[allow(non_camel_case_types)]
+        #[repr(simd)]
+        struct u8x16(u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8);
+
         extern "C" fn context_function(t: Transfer) -> ! {
-            let i: [u8; 512] = unsafe { mem::uninitialized() };
-            t.context.resume(&i as *const _ as usize % 16);
+            // If we do not use an array in combination with mem::uninitialized(),
+            // Rust will still generate SSE/NEON operations for the assignment
+            // and make the test crash with a segmentation fault due to misalignment.
+            let data: [u8x16; 1] = unsafe { mem::uninitialized() };
+            let addr = &data as *const _ as usize;
+
+            t.context.resume(addr % mem::align_of::<u8x16>());
             unreachable!();
         }
 
         let stack = ProtectedFixedSizeStack::default();
-        assert_eq!(stack.top() as usize % 16, 0);
-        assert_eq!(stack.bottom() as usize % 16, 0);
-
         let mut t = Transfer::new(Context::new(&stack, context_function), 0);
+
         t = t.context.resume(0);
         assert_eq!(t.data, 0);
     }
