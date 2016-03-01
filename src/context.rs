@@ -5,8 +5,8 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::os::raw::c_void;
 use std::fmt;
+use std::os::raw::c_void;
 
 use stack::Stack;
 
@@ -44,10 +44,10 @@ extern "C" {
 /// Functions of this signature are used as the entry point for a new `Context`.
 pub type ContextFn = extern "C" fn(t: Transfer) -> !;
 
-/// Functions of this signature are used as the callback after resuming ontop of a `Context`.
+/// Functions of this signature are used as the callback while resuming ontop of a `Context`.
 pub type ResumeOntopFn = extern "C" fn(t: Transfer) -> Transfer;
 
-/// A `Context` provides the capability of saving and restoring the current state of execution.
+/// A `Context` stores a `ContextFn`'s state of execution, for it to be resumed later.
 ///
 /// If we have 2 or more `Context` instances, we can thus easily "freeze" the
 /// current state of execution and explicitely switch to another `Context`.
@@ -93,13 +93,13 @@ impl Context {
     ///
     /// This method identical to `resume()` with a minor difference:
     ///
-    /// The argument `f` is executed right before the targeted `Context` pointed to by `self`
-    /// is woken up and returns from it's call to `resume()`. The method `f` is now passed the
-    /// `Transfer` struct which would normally be returned by `resume()` and is allowed to inspect
-    /// and modify it. When `f` is done it has to return a `Transfer` struct which is then finally
-    /// the one the `resume()` method returns in the targeted `Context`.
+    /// The argument `f` is executed right after the targeted `Context`, pointed to by `self`,
+    /// is woken up, but before it returns from it's call to `resume()`.
+    /// `f` now gets passed the `Transfer` struct which would normally be returned by `resume()`
+    /// and is allowed to inspect and modify it. The `Transfer` struct `f` returns is then
+    /// finally the one returned by `resume()` in the targeted `Context`.
     ///
-    /// This behaviour can be used to either execute additional code or map the `Transfer` struct
+    /// This behaviour can be used to either execute additional code or *map* the `Transfer` struct
     /// to another one before it's returned, without the targeted `Context` giving it's consent.
     /// For instance it can be used to unwind the stack of an unfinished `Context`,
     /// by calling this method with a function that panics, or to deallocate the own stack,
@@ -110,13 +110,14 @@ impl Context {
     }
 }
 
-/// This is the return value by `Context::resume()` and `Context::resume_ontop()`.
 impl fmt::Debug for Context {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Context({:p})", self.0)
     }
 }
 
+/// Contains the previously active `Context` and the `data` passed to resume the current one and
+/// is used as the return value by `Context::resume()` and `Context::resume_ontop()`
 #[repr(C)]
 #[derive(Debug)]
 pub struct Transfer {

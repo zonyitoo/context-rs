@@ -21,8 +21,10 @@ pub enum StackError {
     IoError(io::Error),
 }
 
-/// Represents some kind of stack memory.
-/// Use either FixedSizeStack or ProtectedFixedSizeStack to allocate actual stack space.
+/// Represents any kind of stack memory.
+///
+/// `FixedSizeStack` as well as `ProtectedFixedSizeStack`
+/// can be used to allocate actual stack space.
 #[derive(Debug)]
 pub struct Stack {
     top: *mut c_void,
@@ -30,7 +32,7 @@ pub struct Stack {
 }
 
 impl Stack {
-    /// Creates a representation of some stack memory (non-owning).
+    /// Creates a (non-owning) representation of some stack memory.
     #[inline]
     pub fn new(top: *mut c_void, bottom: *mut c_void) -> Stack {
         debug_assert!(top >= bottom);
@@ -73,14 +75,15 @@ impl Stack {
 
     /// Returns a implementation defined default stack size.
     ///
-    /// This is usually provided by the "soft stack limit"
-    /// if the platform has one or is a multiple of the `min_size()`.
+    /// This value can vary greatly between platforms, but is usually only a couple
+    /// memory pages in size and enough for most use-cases with little recursion.
+    /// It's usually a better idea to specifiy an explicit stack size instead.
     #[inline]
     pub fn default_size() -> usize {
         sys::default_stack_size()
     }
 
-    /// Allocate a new stack of `size`.
+    /// Allocates a new stack of `size`.
     fn allocate(mut size: usize, protected: bool) -> Result<Stack, StackError> {
         let page_size = sys::page_size();
         let min_stack_size = sys::min_stack_size();
@@ -116,20 +119,19 @@ impl Stack {
     }
 }
 
-/// A simple implementation of `Stack`.
+/// A very simple and straightforward implementation of `Stack`.
 ///
 /// Allocates stack space using virtual memory, whose pages will
 /// only be mapped to physical memory if they are used.
 ///
-/// It is recommended to use `ProtectedFixedSizeStack` instead.
+/// _As a general rule it is recommended to use `ProtectedFixedSizeStack` instead._
 #[derive(Debug)]
 pub struct FixedSizeStack(Stack);
 
 impl FixedSizeStack {
-    /// Allocate a new stack of **at least** `size` bytes + one additional guard page.
+    /// Allocates a new stack of **at least** `size` bytes.
     ///
-    /// `size` is rounded up to a multiple of the size of a memory page and
-    /// does not include the size of the guard page itself.
+    /// `size` is rounded up to a multiple of the size of a memory page.
     pub fn new(size: usize) -> Result<FixedSizeStack, StackError> {
         Stack::allocate(size, false).map(FixedSizeStack)
     }
@@ -156,21 +158,21 @@ impl Drop for FixedSizeStack {
     }
 }
 
-/// A more secure, but a bit slower implementation of `Stack` compared to `FixedSizeStack`.
+/// A more secure, but slightly slower version of `FixedSizeStack`.
 ///
 /// Allocates stack space using virtual memory, whose pages will
 /// only be mapped to physical memory if they are used.
 ///
 /// The additional guard page is made protected and inaccessible.
 /// Now if a stack overflow occurs it should (hopefully) hit this guard page and
-/// will cause a segmentation fault instead letting the memory being silently overwritten.
+/// cause a segmentation fault instead letting the memory being overwritten silently.
 ///
-/// It is recommended to use this class in general to create stack memory.
+/// _As a general rule it is recommended to use **this** struct to create stack memory._
 #[derive(Debug)]
 pub struct ProtectedFixedSizeStack(Stack);
 
 impl ProtectedFixedSizeStack {
-    /// Allocate a new stack of **at least** `size` bytes + one additional guard page.
+    /// Allocates a new stack of **at least** `size` bytes + one additional guard page.
     ///
     /// `size` is rounded up to a multiple of the size of a memory page and
     /// does not include the size of the guard page itself.

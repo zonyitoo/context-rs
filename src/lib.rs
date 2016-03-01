@@ -9,7 +9,7 @@
 #![deny(missing_docs)]
 
 //! This project provides an easy interface to the famous **Boost.Context** library
-//! and provides the building blocks for higher-level abstractions, like coroutines,
+//! and thus the building blocks for higher-level abstractions, like coroutines,
 //! cooperative threads (userland threads) or an equivalent to the C# keyword "yield".
 
 extern crate kernel32;
@@ -22,9 +22,9 @@ extern crate winapi;
 /// See the `Context` struct for more information.
 pub mod context;
 
-/// Provides utilities to allocate memory suitable to be used as stack memory for `Context`.
+/// Provides utilities to allocate memory suitable as stack memory for `Context`.
 pub mod stack;
 
 mod sys;
 
-pub use context::{Context, ContextFn, ResumeOntopFn, Transfer};
+pub use context::{Context, Transfer, ContextFn, ResumeOntopFn};
