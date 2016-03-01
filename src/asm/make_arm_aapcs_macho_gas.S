@@ -32,7 +32,7 @@ _make_fcontext:
     bic  a1, a1, #15
 
     @ reserve space for context-data on context-stack
-    sub  a1, a1, #60
+    sub  a1, a1, #64
 
     @ third arg of make_fcontext() == address of context-function
     str  a3, [a1, #44]
