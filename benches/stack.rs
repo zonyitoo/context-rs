@@ -10,15 +10,20 @@
 extern crate context;
 extern crate test;
 
-use context::stack::{Stack, FixedSizeStack};
+use context::stack::{Stack, FixedSizeStack, ProtectedFixedSizeStack};
 use test::Bencher;
 
 #[bench]
-fn stack_alloc(b: &mut Bencher) {
-    b.iter(|| FixedSizeStack::default());
+fn stack_alloc_reference_perf(b: &mut Bencher) {
+    b.iter(|| test::black_box(Vec::<u8>::with_capacity(Stack::default_size())));
 }
 
 #[bench]
-fn regular_alloc(b: &mut Bencher) {
-    b.iter(|| Vec::<u8>::with_capacity(Stack::default_size()));
+fn stack_alloc_fixed(b: &mut Bencher) {
+    b.iter(|| test::black_box(FixedSizeStack::default()));
+}
+
+#[bench]
+fn stack_alloc_protected_fixed(b: &mut Bencher) {
+    b.iter(|| test::black_box(ProtectedFixedSizeStack::default()));
 }

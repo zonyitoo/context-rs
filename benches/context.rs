@@ -23,7 +23,11 @@ fn resume_reference_perf(b: &mut Bencher) {
         test::black_box(t)
     }
 
-    b.iter(|| yielder(unsafe { Transfer::empty(0) }));
+    let mut t: Transfer = unsafe { mem::uninitialized() };
+
+    b.iter(|| unsafe {
+        t = yielder(mem::transmute_copy::<_, Transfer>(&t));
+    });
 }
 
 #[bench]
@@ -37,7 +41,9 @@ fn resume(b: &mut Bencher) {
     let stack = FixedSizeStack::default();
     let mut t = Transfer::new(Context::new(&stack, yielder), 0);
 
-    b.iter(|| unsafe { t = mem::replace(&mut t, mem::uninitialized()).context.resume(0) });
+    b.iter(|| unsafe {
+        t = mem::transmute_copy::<_, Transfer>(&t).context.resume(0);
+    });
 }
 
 #[bench]
@@ -48,11 +54,14 @@ fn resume_ontop(b: &mut Bencher) {
         }
     }
 
-    extern "C" fn ontop_function(mut t: Transfer) -> Transfer {
+    extern "C" fn ontop_function(t: Transfer) -> Transfer {
         t
     }
 
     let stack = FixedSizeStack::default();
     let mut t = Transfer::new(Context::new(&stack, yielder), 0);
-    b.iter(|| unsafe { t = mem::replace(&mut t, mem::uninitialized()).context.resume_ontop(0, ontop_function) });
+
+    b.iter(|| unsafe {
+        t = mem::transmute_copy::<_, Transfer>(&t).context.resume_ontop(0, ontop_function);
+    });
 }
