@@ -141,6 +141,12 @@ impl<T> Transfer<T> {
             data: Box::into_raw(data),
         }
     }
+
+    /// Unpack value from transfer
+    #[inline(always)]
+    pub fn unpack(&self) -> Box<T> {
+        unsafe{ Box::from_raw(self.data) }
+    }
 }
 
 #[cfg(test)]
