@@ -15,10 +15,10 @@ fn main() {
     // This method will always `resume()` immediately back to the
     // previous `Context` with a `data` value incremented by one starting at 0.
     // You could thus describe this method as a "natural number generator".
-    extern "C" fn context_function(mut t: Transfer) -> ! {
+    extern "C" fn context_function(mut t: Transfer<usize>) -> ! {
         for i in 0usize.. {
             print!("Yielding {} => ", i);
-            t = t.context.resume(i);
+            t = t.context.resume(Box::new(i));
         }
 
         unreachable!();
@@ -28,7 +28,7 @@ fn main() {
     let stack = ProtectedFixedSizeStack::default();
 
     // Allocate a Context on the stack.
-    let mut t = Transfer::new(Context::new(&stack, context_function), 0);
+    let mut t = Transfer::new(Context::new(&stack, context_function), Box::new(0));
 
     // Yield 10 times to `context_function()`.
     for _ in 0..10 {
@@ -36,9 +36,11 @@ fn main() {
         // The `data` value is not used in this example and is left at 0.
         // The first and every other call will return references to the actual `Context` data.
         print!("Resuming => ");
-        t = t.context.resume(0);
+        t = t.context.resume(Box::new(0));
 
-        println!("Got {}", t.data);
+        unsafe {
+            println!("Got {}", Box::from_raw(t.data));
+        }
     }
 
     println!("Finished!");
