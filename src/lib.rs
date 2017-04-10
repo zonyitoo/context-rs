@@ -12,8 +12,10 @@
 //! and thus the building blocks for higher-level abstractions, like coroutines,
 //! cooperative threads (userland threads) or an equivalent to the C# keyword "yield".
 
-extern crate kernel32;
 extern crate libc;
+#[cfg(windows)]
+extern crate kernel32;
+#[cfg(windows)]
 extern crate winapi;
 
 /// Provides the `Context` and `Transfer` types for
