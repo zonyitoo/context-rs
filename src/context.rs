@@ -6,6 +6,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use std::fmt;
+use std::mem;
 use std::os::raw::c_void;
 
 use stack::Stack;
@@ -19,7 +20,7 @@ extern "C" {
     /// * `size` - The size of the stack.
     /// * `f`    - A function to be invoked on the first call to jump_fcontext(this, _).
     #[inline(never)]
-    fn make_fcontext(sp: *mut c_void, size: usize, f: ContextFn) -> &'static c_void;
+    fn make_fcontext(sp: *mut c_void, size: usize, f: ContextFn<usize>) -> &'static c_void;
 
     /// Yields the execution to another `Context`.
     ///
@@ -28,7 +29,7 @@ extern "C" {
     /// * `p`  - An arbitrary argument that will be set as the `data` field
     ///          of the `Transfer` object passed to the other Context.
     #[inline(never)]
-    fn jump_fcontext(to: &'static c_void, p: usize) -> Transfer;
+    fn jump_fcontext(to: &'static c_void, p: usize) -> Transfer<usize>;
 
     /// Yields the execution to another `Context` and executes a function "ontop" of it's stack.
     ///
@@ -38,14 +39,14 @@ extern "C" {
     ///          of the `Transfer` object passed to the other Context.
     /// * `f`  - A function to be invoked on `to` before returning.
     #[inline(never)]
-    fn ontop_fcontext(to: &'static c_void, p: usize, f: ResumeOntopFn) -> Transfer;
+    fn ontop_fcontext(to: &'static c_void, p: usize, f: ResumeOntopFn<usize>) -> Transfer<usize>;
 }
 
 /// Functions of this signature are used as the entry point for a new `Context`.
-pub type ContextFn = extern "C" fn(t: Transfer) -> !;
+pub type ContextFn<T> = extern "C" fn(t: Transfer<T>) -> !;
 
 /// Functions of this signature are used as the callback while resuming ontop of a `Context`.
-pub type ResumeOntopFn = extern "C" fn(t: Transfer) -> Transfer;
+pub type ResumeOntopFn<T> = extern "C" fn(t: Transfer<T>) -> Transfer<T>;
 
 /// A `Context` stores a `ContextFn`'s state of execution, for it to be resumed later.
 ///
@@ -69,8 +70,8 @@ impl Context {
     ///
     /// `f` is not executed until the first call to `resume()`.
     #[inline(always)]
-    pub fn new(stack: &Stack, f: ContextFn) -> Context {
-        Context(unsafe { make_fcontext(stack.top(), stack.len(), f) })
+    pub fn new<T>(stack: &Stack, f: ContextFn<T>) -> Context {
+        Context(unsafe { make_fcontext(stack.top(), stack.len(), mem::transmute(f)) })
     }
 
     /// Yields the execution to another `Context`.
@@ -85,8 +86,10 @@ impl Context {
     /// The returned `Transfer` struct contains the previously active `Context` and
     /// the `data` argument used to resume the current one.
     #[inline(always)]
-    pub fn resume(self, data: usize) -> Transfer {
-        unsafe { jump_fcontext(self.0, data) }
+    pub fn resume<T>(self, data: Box<T>) -> Transfer<T> {
+//        let raw: *const T = Box::into_raw(data);
+//        let v: usize = mem::transmute(raw);
+        unsafe { mem::transmute(jump_fcontext(self.0, mem::transmute(Box::into_raw(data)))) }
     }
 
     /// Yields the execution to another `Context` and executes a function "ontop" of it's stack.
@@ -105,8 +108,8 @@ impl Context {
     /// by calling this method with a function that panics, or to deallocate the own stack,
     /// by deferring the actual deallocation until we jumped to another, safe `Context`.
     #[inline(always)]
-    pub fn resume_ontop(self, data: usize, f: ResumeOntopFn) -> Transfer {
-        unsafe { ontop_fcontext(self.0, data, f) }
+    pub fn resume_ontop<T>(self, data: usize, f: ResumeOntopFn<T>) -> Transfer<T> {
+        unsafe { mem::transmute(ontop_fcontext(self.0, data, mem::transmute(f))) }
     }
 }
 
@@ -120,23 +123,29 @@ impl fmt::Debug for Context {
 /// is used as the return value by `Context::resume()` and `Context::resume_ontop()`
 #[repr(C)]
 #[derive(Debug)]
-pub struct Transfer {
+pub struct Transfer<T> {
     /// The previously executed `Context` which yielded to resume the current one.
     pub context: Context,
 
     /// The `data` which was passed to `Context::resume()` or
     /// `Context::resume_ontop()` to resume the current `Context`.
-    pub data: usize,
+    pub data: *mut T,
 }
 
-impl Transfer {
+impl<T> Transfer<T> {
     /// Returns a new `Transfer` struct with the members set to their respective arguments.
     #[inline(always)]
-    pub fn new(context: Context, data: usize) -> Transfer {
+    pub fn new(context: Context, data: Box<T>) -> Transfer<T> {
         Transfer {
             context: context,
-            data: data,
+            data: Box::into_raw(data),
         }
+    }
+
+    /// Unpack value from transfer
+    #[inline(always)]
+    pub fn unpack(&self) -> Box<T> {
+        unsafe{ Box::from_raw(self.data) }
     }
 }
 
