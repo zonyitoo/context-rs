@@ -21,12 +21,12 @@ const MAP_STACK: libc::c_int = 0;
 #[cfg(not(any(target_os = "openbsd", target_os = "macos", target_os = "ios", target_os = "android")))]
 const MAP_STACK: libc::c_int = libc::MAP_STACK;
 
-pub fn allocate_stack(size: usize) -> io::Result<Stack> {
+pub unsafe fn allocate_stack(size: usize) -> io::Result<Stack> {
     const NULL: *mut libc::c_void = 0 as *mut libc::c_void;
     const PROT: libc::c_int = libc::PROT_READ | libc::PROT_WRITE;
     const TYPE: libc::c_int = libc::MAP_PRIVATE | libc::MAP_ANON | MAP_STACK;
 
-    let ptr = unsafe { libc::mmap(NULL, size, PROT, TYPE, -1, 0) };
+    let ptr = libc::mmap(NULL, size, PROT, TYPE, -1, 0);
 
     if ptr == libc::MAP_FAILED {
         Err(io::Error::last_os_error())
@@ -35,12 +35,12 @@ pub fn allocate_stack(size: usize) -> io::Result<Stack> {
     }
 }
 
-pub fn protect_stack(stack: &Stack) -> io::Result<Stack> {
+pub unsafe fn protect_stack(stack: &Stack) -> io::Result<Stack> {
     let page_size = page_size();
 
     debug_assert!(stack.len() % page_size == 0 && stack.len() != 0);
 
-    let ret = unsafe {
+    let ret = {
         let bottom = stack.bottom() as *mut libc::c_void;
         libc::mprotect(bottom, page_size, libc::PROT_NONE)
     };
@@ -53,10 +53,8 @@ pub fn protect_stack(stack: &Stack) -> io::Result<Stack> {
     }
 }
 
-pub fn deallocate_stack(ptr: *mut c_void, size: usize) {
-    unsafe {
-        libc::munmap(ptr as *mut libc::c_void, size);
-    }
+pub unsafe fn deallocate_stack(ptr: *mut c_void, size: usize) {
+    libc::munmap(ptr as *mut libc::c_void, size);
 }
 
 pub fn page_size() -> usize {
