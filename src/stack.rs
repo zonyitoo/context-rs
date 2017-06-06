@@ -33,8 +33,11 @@ pub struct Stack {
 
 impl Stack {
     /// Creates a (non-owning) representation of some stack memory.
+    ///
+    /// It is unsafe because it is your reponsibility to make sure that `top` and `buttom` are valid
+    /// addresses.
     #[inline]
-    pub fn new(top: *mut c_void, bottom: *mut c_void) -> Stack {
+    pub unsafe fn new(top: *mut c_void, bottom: *mut c_void) -> Stack {
         debug_assert!(top >= bottom);
 
         Stack {
@@ -99,11 +102,11 @@ impl Stack {
 
         if let Some(size) = size.checked_add(add) {
             if size <= max_stack_size {
-                let mut ret = sys::allocate_stack(size);
+                let mut ret = unsafe { sys::allocate_stack(size) };
 
                 if protected {
                     if let Ok(stack) = ret {
-                        ret = sys::protect_stack(&stack);
+                        ret = unsafe { sys::protect_stack(&stack) };
                     }
                 }
 
@@ -152,7 +155,9 @@ impl Default for FixedSizeStack {
 
 impl Drop for FixedSizeStack {
     fn drop(&mut self) {
-        sys::deallocate_stack(self.0.bottom(), self.0.len());
+        unsafe {
+            sys::deallocate_stack(self.0.bottom(), self.0.len());
+        }
     }
 }
 
@@ -200,7 +205,9 @@ impl Drop for ProtectedFixedSizeStack {
         let page_size = sys::page_size();
         let guard = (self.0.bottom() as usize - page_size) as *mut c_void;
         let size_with_guard = self.0.len() + page_size;
-        sys::deallocate_stack(guard, size_with_guard);
+        unsafe {
+            sys::deallocate_stack(guard, size_with_guard);
+        }
     }
 }
 

@@ -26,12 +26,12 @@ extern "system" {
                           -> winapi::BOOL;
 }
 
-pub fn allocate_stack(size: usize) -> io::Result<Stack> {
+pub unsafe fn allocate_stack(size: usize) -> io::Result<Stack> {
     const NULL: winapi::LPVOID = 0 as winapi::LPVOID;
     const PROT: winapi::DWORD = winapi::PAGE_READWRITE;
     const TYPE: winapi::DWORD = winapi::MEM_COMMIT | winapi::MEM_RESERVE;
 
-    let ptr = unsafe { kernel32::VirtualAlloc(NULL, size as winapi::SIZE_T, TYPE, PROT) };
+    let ptr = kernel32::VirtualAlloc(NULL, size as winapi::SIZE_T, TYPE, PROT);
 
     if ptr == NULL {
         Err(io::Error::last_os_error())
@@ -40,7 +40,7 @@ pub fn allocate_stack(size: usize) -> io::Result<Stack> {
     }
 }
 
-pub fn protect_stack(stack: &Stack) -> io::Result<Stack> {
+pub unsafe fn protect_stack(stack: &Stack) -> io::Result<Stack> {
     const TYPE: winapi::DWORD = winapi::PAGE_READWRITE | winapi::PAGE_GUARD;
 
     let page_size = page_size();
@@ -48,7 +48,7 @@ pub fn protect_stack(stack: &Stack) -> io::Result<Stack> {
 
     debug_assert!(stack.len() % page_size == 0 && stack.len() != 0);
 
-    let ret = unsafe {
+    let ret = {
         let page_size = page_size as winapi::SIZE_T;
         VirtualProtect(stack.bottom(), page_size, TYPE, &mut old_prot)
     };
@@ -61,10 +61,8 @@ pub fn protect_stack(stack: &Stack) -> io::Result<Stack> {
     }
 }
 
-pub fn deallocate_stack(ptr: *mut c_void, _: usize) {
-    unsafe {
-        kernel32::VirtualFree(ptr as winapi::LPVOID, 0, winapi::MEM_RELEASE);
-    }
+pub unsafe fn deallocate_stack(ptr: *mut c_void, _: usize) {
+    kernel32::VirtualFree(ptr as winapi::LPVOID, 0, winapi::MEM_RELEASE);
 }
 
 pub fn page_size() -> usize {

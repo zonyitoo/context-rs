@@ -68,9 +68,12 @@ impl Context {
     /// Creates a new `Context` prepared to execute `f` at the beginning of `stack`.
     ///
     /// `f` is not executed until the first call to `resume()`.
+    ///
+    /// It is unsafe because it only takes a reference of `Stack`. You have to make sure the
+    /// `Stack` lives longer than the generated `Context`.
     #[inline(always)]
-    pub fn new(stack: &Stack, f: ContextFn) -> Context {
-        Context(unsafe { make_fcontext(stack.top(), stack.len(), f) })
+    pub unsafe fn new(stack: &Stack, f: ContextFn) -> Context {
+        Context(make_fcontext(stack.top(), stack.len(), f))
     }
 
     /// Yields the execution to another `Context`.
@@ -84,9 +87,12 @@ impl Context {
     ///
     /// The returned `Transfer` struct contains the previously active `Context` and
     /// the `data` argument used to resume the current one.
+    ///
+    /// It is unsafe because it is your responsibility to make sure that all data that constructed in
+    /// this context have to be dropped properly when the last context is dropped.
     #[inline(always)]
-    pub fn resume(self, data: usize) -> Transfer {
-        unsafe { jump_fcontext(self.0, data) }
+    pub unsafe fn resume(self, data: usize) -> Transfer {
+        jump_fcontext(self.0, data)
     }
 
     /// Yields the execution to another `Context` and executes a function "ontop" of it's stack.
@@ -104,9 +110,12 @@ impl Context {
     /// For instance it can be used to unwind the stack of an unfinished `Context`,
     /// by calling this method with a function that panics, or to deallocate the own stack,
     /// by deferring the actual deallocation until we jumped to another, safe `Context`.
+    ///
+    /// It is unsafe because it is your responsibility to make sure that all data that constructed in
+    /// this context have to be dropped properly when the last context is dropped.
     #[inline(always)]
-    pub fn resume_ontop(self, data: usize, f: ResumeOntopFn) -> Transfer {
-        unsafe { ontop_fcontext(self.0, data, f) }
+    pub unsafe fn resume_ontop(self, data: usize, f: ResumeOntopFn) -> Transfer {
+        ontop_fcontext(self.0, data, f)
     }
 }
 
@@ -168,14 +177,14 @@ mod tests {
             let data: [u8x16; 1] = unsafe { mem::uninitialized() };
             let addr = &data as *const _ as usize;
 
-            t.context.resume(addr % mem::align_of::<u8x16>());
+            unsafe { t.context.resume(addr % mem::align_of::<u8x16>()) };
             unreachable!();
         }
 
         let stack = ProtectedFixedSizeStack::default();
-        let mut t = Transfer::new(Context::new(&stack, context_function), 0);
+        let mut t = Transfer::new(unsafe { Context::new(&stack, context_function) }, 0);
 
-        t = t.context.resume(0);
+        t = unsafe { t.context.resume(0) };
         assert_eq!(t.data, 0);
     }
 
@@ -184,17 +193,17 @@ mod tests {
         extern "C" fn context_function(mut t: Transfer) -> ! {
             for i in 0usize.. {
                 assert_eq!(t.data, i);
-                t = t.context.resume(i);
+                t = unsafe { t.context.resume(i) };
             }
 
             unreachable!();
         }
 
         let stack = ProtectedFixedSizeStack::default();
-        let mut t = Transfer::new(Context::new(&stack, context_function), 0);
+        let mut t = Transfer::new(unsafe { Context::new(&stack, context_function) }, 0);
 
         for i in 0..10usize {
-            t = t.context.resume(i);
+            t = unsafe { t.context.resume(i) };
             assert_eq!(t.data, i);
 
             if t.data == 9 {
@@ -207,7 +216,7 @@ mod tests {
     fn resume_ontop() {
         extern "C" fn resume(t: Transfer) -> ! {
             assert_eq!(t.data, 0);
-            t.context.resume_ontop(1, resume_ontop);
+            unsafe { t.context.resume_ontop(1, resume_ontop) };
             unreachable!();
         }
 
@@ -218,9 +227,9 @@ mod tests {
         }
 
         let stack = ProtectedFixedSizeStack::default();
-        let mut t = Transfer::new(Context::new(&stack, resume), 0);
+        let mut t = Transfer::new(unsafe { Context::new(&stack, resume) }, 0);
 
-        t = t.context.resume(0);
+        t = unsafe { t.context.resume(0) };
         assert_eq!(t.data, 123);
     }
 }

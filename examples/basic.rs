@@ -18,7 +18,7 @@ fn main() {
     extern "C" fn context_function(mut t: Transfer) -> ! {
         for i in 0usize.. {
             print!("Yielding {} => ", i);
-            t = t.context.resume(i);
+            t = unsafe { t.context.resume(i) };
         }
 
         unreachable!();
@@ -28,7 +28,7 @@ fn main() {
     let stack = ProtectedFixedSizeStack::default();
 
     // Allocate a Context on the stack.
-    let mut t = Transfer::new(Context::new(&stack, context_function), 0);
+    let mut t = Transfer::new(unsafe { Context::new(&stack, context_function) }, 0);
 
     // Yield 10 times to `context_function()`.
     for _ in 0..10 {
@@ -36,7 +36,7 @@ fn main() {
         // The `data` value is not used in this example and is left at 0.
         // The first and every other call will return references to the actual `Context` data.
         print!("Resuming => ");
-        t = t.context.resume(0);
+        t = unsafe { t.context.resume(0) };
 
         println!("Got {}", t.data);
     }
