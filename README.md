@@ -18,7 +18,7 @@ To use `context`, first add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-context = "1.0"
+context = "2.0"
 ```
 
 And then add this to your source files:
