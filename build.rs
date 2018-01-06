@@ -5,7 +5,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-extern crate gcc;
+extern crate cc;
 
 use std::path::PathBuf;
 use std::env;
@@ -65,7 +65,7 @@ fn main() {
 
     let prefixes = ["jump", "make", "ontop"];
     let base_path: PathBuf = ["src", "asm"].iter().collect();
-    let mut config = gcc::Config::new();
+    let mut config = cc::Build::new();
 
     config.define("BOOST_CONTEXT_EXPORT", None);
 
