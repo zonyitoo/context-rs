@@ -5,6 +5,8 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io;
 use std::ops::Deref;
 use std::os::raw::c_void;
@@ -19,6 +21,32 @@ pub enum StackError {
 
     /// Returned if some kind of I/O error happens during allocation.
     IoError(io::Error),
+}
+
+impl Display for StackError {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        match *self {
+            StackError::ExceedsMaximumSize(size) => {
+                write!(fmt, "Requested more than max size of {} bytes for a stack", size)
+            },
+            StackError::IoError(ref e) => e.fmt(fmt),
+        }
+    }
+}
+
+impl Error for StackError {
+    fn description(&self) -> &str {
+        match *self {
+            StackError::ExceedsMaximumSize(_) => "exceeds maximum stack size",
+            StackError::IoError(ref e) => e.description(),
+        }
+    }
+    fn cause(&self) -> Option<&Error> {
+        match *self {
+            StackError::ExceedsMaximumSize(_) => None,
+            StackError::IoError(ref e) => Some(e),
+        }
+    }
 }
 
 /// Represents any kind of stack memory.

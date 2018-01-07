@@ -34,12 +34,12 @@ fn resume_reference_perf(b: &mut Bencher) {
 fn resume(b: &mut Bencher) {
     extern "C" fn yielder(mut t: Transfer) -> ! {
         loop {
-            t = t.context.resume(1);
+            t = unsafe { t.context.resume(1) };
         }
     }
 
     let stack = FixedSizeStack::default();
-    let mut t = Transfer::new(Context::new(&stack, yielder), 0);
+    let mut t = Transfer::new(unsafe { Context::new(&stack, yielder) }, 0);
 
     b.iter(|| unsafe {
         t = mem::transmute_copy::<_, Transfer>(&t).context.resume(0);
@@ -50,7 +50,7 @@ fn resume(b: &mut Bencher) {
 fn resume_ontop(b: &mut Bencher) {
     extern "C" fn yielder(mut t: Transfer) -> ! {
         loop {
-            t = t.context.resume(1);
+            t = unsafe { t.context.resume(1) };
         }
     }
 
@@ -59,7 +59,7 @@ fn resume_ontop(b: &mut Bencher) {
     }
 
     let stack = FixedSizeStack::default();
-    let mut t = Transfer::new(Context::new(&stack, yielder), 0);
+    let mut t = Transfer::new(unsafe { Context::new(&stack, yielder) }, 0);
 
     b.iter(|| unsafe {
         t = mem::transmute_copy::<_, Transfer>(&t).context.resume_ontop(0, ontop_function);
