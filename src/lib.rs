@@ -14,8 +14,6 @@
 
 extern crate libc;
 #[cfg(windows)]
-extern crate kernel32;
-#[cfg(windows)]
 extern crate winapi;
 
 /// Provides the `Context` and `Transfer` types for
@@ -29,4 +27,9 @@ pub mod stack;
 
 mod sys;
 
-pub use context::{Context, Transfer, ContextFn, ResumeOntopFn};
+pub use context::{Context, ContextFn, ResumeOntopFn, Transfer};
+
+#[cfg(not(target_os = "windows"))]
+pub use std::os::raw::c_void;
+#[cfg(target_os = "windows")]
+pub use winapi::ctypes::c_void;
