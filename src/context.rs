@@ -6,8 +6,8 @@
 // copied, modified, or distributed except according to those terms.
 
 use std::fmt;
-use std::os::raw::c_void;
 
+use c_void;
 use stack::Stack;
 
 // Requires cdecl calling convention on x86, which is the default for "C" blocks.
@@ -18,7 +18,6 @@ extern "C" {
     /// * `sp`   - A pointer to the bottom of the stack.
     /// * `size` - The size of the stack.
     /// * `f`    - A function to be invoked on the first call to jump_fcontext(this, _).
-    #[inline(never)]
     fn make_fcontext(sp: *mut c_void, size: usize, f: ContextFn) -> &'static c_void;
 
     /// Yields the execution to another `Context`.
@@ -27,7 +26,6 @@ extern "C" {
     /// * `to` - A pointer to the `Context` with whom we swap execution.
     /// * `p`  - An arbitrary argument that will be set as the `data` field
     ///          of the `Transfer` object passed to the other Context.
-    #[inline(never)]
     fn jump_fcontext(to: &'static c_void, p: usize) -> Transfer;
 
     /// Yields the execution to another `Context` and executes a function "ontop" of it's stack.
@@ -37,7 +35,6 @@ extern "C" {
     /// * `p`  - An arbitrary argument that will be set as the `data` field
     ///          of the `Transfer` object passed to the other Context.
     /// * `f`  - A function to be invoked on `to` before returning.
-    #[inline(never)]
     fn ontop_fcontext(to: &'static c_void, p: usize, f: ResumeOntopFn) -> Transfer;
 }
 
@@ -152,10 +149,10 @@ impl Transfer {
 #[cfg(test)]
 mod tests {
     use std::mem;
-    use std::os::raw::c_void;
 
-    use stack::ProtectedFixedSizeStack;
     use super::*;
+    use c_void;
+    use stack::ProtectedFixedSizeStack;
 
     #[test]
     fn type_sizes() {
@@ -168,7 +165,24 @@ mod tests {
     fn stack_alignment() {
         #[allow(non_camel_case_types)]
         #[repr(simd)]
-        struct u8x16(u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8);
+        struct u8x16(
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+            u8,
+        );
 
         extern "C" fn context_function(t: Transfer) -> ! {
             // If we do not use an array in combination with mem::uninitialized(),

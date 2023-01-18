@@ -9,8 +9,8 @@ use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io;
 use std::ops::Deref;
-use std::os::raw::c_void;
 
+use c_void;
 use sys;
 
 /// Error type returned by stack allocation methods.
@@ -27,21 +27,26 @@ impl Display for StackError {
     fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
         match *self {
             StackError::ExceedsMaximumSize(size) => {
-                write!(fmt, "Requested more than max size of {} bytes for a stack", size)
-            },
+                write!(
+                    fmt,
+                    "Requested more than max size of {} bytes for a stack",
+                    size
+                )
+            }
             StackError::IoError(ref e) => e.fmt(fmt),
         }
     }
 }
 
 impl Error for StackError {
+    #[allow(deprecated, deprecated_in_future)]
     fn description(&self) -> &str {
         match *self {
             StackError::ExceedsMaximumSize(_) => "exceeds maximum stack size",
             StackError::IoError(ref e) => e.description(),
         }
     }
-    fn cause(&self) -> Option<&Error> {
+    fn cause(&self) -> Option<&dyn Error> {
         match *self {
             StackError::ExceedsMaximumSize(_) => None,
             StackError::IoError(ref e) => Some(e),

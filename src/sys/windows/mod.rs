@@ -7,50 +7,49 @@
 
 use std::io;
 use std::mem;
-use std::os::raw::c_void;
-use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::usize;
 
-use kernel32;
 use winapi;
 
+use c_void;
 use stack::Stack;
 
-extern "system" {
-    // TODO: kernel32-sys has currently (0.2.1) a bug where lpflOldProtect
-    // is declared as a DWORD, but should be PDWORD instead.
-    pub fn VirtualProtect(lpAddress: winapi::LPVOID,
-                          dwSize: winapi::SIZE_T,
-                          flNewProtect: winapi::DWORD,
-                          lpflOldProtect: winapi::PDWORD)
-                          -> winapi::BOOL;
-}
-
 pub unsafe fn allocate_stack(size: usize) -> io::Result<Stack> {
-    const NULL: winapi::LPVOID = 0 as winapi::LPVOID;
-    const PROT: winapi::DWORD = winapi::PAGE_READWRITE;
-    const TYPE: winapi::DWORD = winapi::MEM_COMMIT | winapi::MEM_RESERVE;
+    const NULL: winapi::shared::minwindef::LPVOID = 0 as winapi::shared::minwindef::LPVOID;
+    const PROT: winapi::shared::minwindef::DWORD = winapi::um::winnt::PAGE_READWRITE;
+    const TYPE: winapi::shared::minwindef::DWORD =
+        winapi::um::winnt::MEM_COMMIT | winapi::um::winnt::MEM_RESERVE;
 
-    let ptr = kernel32::VirtualAlloc(NULL, size as winapi::SIZE_T, TYPE, PROT);
+    let ptr = winapi::um::memoryapi::VirtualAlloc(
+        NULL,
+        size as winapi::shared::basetsd::SIZE_T,
+        TYPE,
+        PROT,
+    );
 
     if ptr == NULL {
         Err(io::Error::last_os_error())
     } else {
-        Ok(Stack::new((ptr as usize + size) as *mut c_void, ptr as *mut c_void))
+        Ok(Stack::new(
+            (ptr as usize + size) as *mut c_void,
+            ptr as *mut c_void,
+        ))
     }
 }
 
 pub unsafe fn protect_stack(stack: &Stack) -> io::Result<Stack> {
-    const TYPE: winapi::DWORD = winapi::PAGE_READWRITE | winapi::PAGE_GUARD;
+    const TYPE: winapi::shared::minwindef::DWORD =
+        winapi::um::winnt::PAGE_READWRITE | winapi::um::winnt::PAGE_GUARD;
 
     let page_size = page_size();
-    let mut old_prot: winapi::DWORD = 0;
+    let mut old_prot: winapi::shared::minwindef::DWORD = 0;
 
     debug_assert!(stack.len() % page_size == 0 && stack.len() != 0);
 
     let ret = {
-        let page_size = page_size as winapi::SIZE_T;
-        VirtualProtect(stack.bottom(), page_size, TYPE, &mut old_prot)
+        let page_size = page_size as winapi::shared::basetsd::SIZE_T;
+        winapi::um::memoryapi::VirtualProtect(stack.bottom(), page_size, TYPE, &mut old_prot)
     };
 
     if ret == 0 {
@@ -62,18 +61,22 @@ pub unsafe fn protect_stack(stack: &Stack) -> io::Result<Stack> {
 }
 
 pub unsafe fn deallocate_stack(ptr: *mut c_void, _: usize) {
-    kernel32::VirtualFree(ptr as winapi::LPVOID, 0, winapi::MEM_RELEASE);
+    winapi::um::memoryapi::VirtualFree(
+        ptr as winapi::shared::minwindef::LPVOID,
+        0,
+        winapi::um::winnt::MEM_RELEASE,
+    );
 }
 
 pub fn page_size() -> usize {
-    static PAGE_SIZE: AtomicUsize = ATOMIC_USIZE_INIT;
+    static PAGE_SIZE: AtomicUsize = AtomicUsize::new(0);
 
     let mut ret = PAGE_SIZE.load(Ordering::Relaxed);
 
     if ret == 0 {
         ret = unsafe {
             let mut info = mem::zeroed();
-            kernel32::GetSystemInfo(&mut info);
+            winapi::um::sysinfoapi::GetSystemInfo(&mut info);
             info.dwPageSize as usize
         };
 

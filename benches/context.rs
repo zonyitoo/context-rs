@@ -12,8 +12,8 @@ extern crate test;
 
 use test::Bencher;
 
-use context::{Context, Transfer};
 use context::stack::FixedSizeStack;
+use context::{Context, Transfer};
 use std::mem;
 
 #[bench]
@@ -23,7 +23,7 @@ fn resume_reference_perf(b: &mut Bencher) {
         test::black_box(t)
     }
 
-    let mut t: Transfer = unsafe { mem::uninitialized() };
+    let mut t: Transfer = unsafe { mem::MaybeUninit::uninit().assume_init() };
 
     b.iter(|| unsafe {
         t = yielder(mem::transmute_copy::<_, Transfer>(&t));
@@ -62,6 +62,8 @@ fn resume_ontop(b: &mut Bencher) {
     let mut t = Transfer::new(unsafe { Context::new(&stack, yielder) }, 0);
 
     b.iter(|| unsafe {
-        t = mem::transmute_copy::<_, Transfer>(&t).context.resume_ontop(0, ontop_function);
+        t = mem::transmute_copy::<_, Transfer>(&t)
+            .context
+            .resume_ontop(0, ontop_function);
     });
 }

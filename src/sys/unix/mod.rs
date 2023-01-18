@@ -7,18 +7,28 @@
 
 use std::io;
 use std::mem;
-use std::os::raw::c_void;
-use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::usize;
 
 use libc;
 
+use c_void;
 use stack::Stack;
 
-#[cfg(any(target_os = "openbsd", target_os = "macos", target_os = "ios", target_os = "android"))]
+#[cfg(any(
+    target_os = "openbsd",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "android"
+))]
 const MAP_STACK: libc::c_int = 0;
 
-#[cfg(not(any(target_os = "openbsd", target_os = "macos", target_os = "ios", target_os = "android")))]
+#[cfg(not(any(
+    target_os = "openbsd",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "android"
+)))]
 const MAP_STACK: libc::c_int = libc::MAP_STACK;
 
 pub unsafe fn allocate_stack(size: usize) -> io::Result<Stack> {
@@ -31,7 +41,10 @@ pub unsafe fn allocate_stack(size: usize) -> io::Result<Stack> {
     if ptr == libc::MAP_FAILED {
         Err(io::Error::last_os_error())
     } else {
-        Ok(Stack::new((ptr as usize + size) as *mut c_void, ptr as *mut c_void))
+        Ok(Stack::new(
+            (ptr as usize + size) as *mut c_void,
+            ptr as *mut c_void,
+        ))
     }
 }
 
@@ -58,7 +71,7 @@ pub unsafe fn deallocate_stack(ptr: *mut c_void, size: usize) {
 }
 
 pub fn page_size() -> usize {
-    static PAGE_SIZE: AtomicUsize = ATOMIC_USIZE_INIT;
+    static PAGE_SIZE: AtomicUsize = AtomicUsize::new(0);
 
     let mut ret = PAGE_SIZE.load(Ordering::Relaxed);
 
@@ -80,7 +93,7 @@ pub fn min_stack_size() -> usize {
 }
 
 pub fn max_stack_size() -> usize {
-    static PAGE_SIZE: AtomicUsize = ATOMIC_USIZE_INIT;
+    static PAGE_SIZE: AtomicUsize = AtomicUsize::new(0);
 
     let mut ret = PAGE_SIZE.load(Ordering::Relaxed);
 
@@ -89,13 +102,14 @@ pub fn max_stack_size() -> usize {
         let limitret;
 
         unsafe {
-            limit = mem::uninitialized();
+            limit = mem::MaybeUninit::uninit().assume_init();
             limitret = libc::getrlimit(libc::RLIMIT_STACK, &mut limit);
         }
 
         if limitret == 0 {
-            ret = if limit.rlim_max == libc::RLIM_INFINITY ||
-                     limit.rlim_max > (usize::MAX as libc::rlim_t) {
+            ret = if limit.rlim_max == libc::RLIM_INFINITY
+                || limit.rlim_max > (usize::MAX as libc::rlim_t)
+            {
                 usize::MAX
             } else {
                 limit.rlim_max as usize
