@@ -24,9 +24,10 @@ fn main() {
         "powerpc" => "ppc32",
         "powerpc64" => "ppc64",
         "x86_64" => "x86_64",
-        "mips64" => "mips64",
+        "mips64" | "mips64el" => "mips64",
         "loongarch64" => "loongarch64",
-        "riscv64" => "riscv64",
+        "riscv64gc" => "riscv64",
+        "s390x" => "s390x",
         _ => {
             panic!("Unsupported architecture: {}", target);
         }

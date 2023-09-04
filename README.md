@@ -51,6 +51,7 @@ ppc32         | SYSV (ELF), XCOFF | -          | SYSV (MACH-O) | -
 ppc64         | SYSV (ELF), XCOFF | -          | SYSV (MACH-O) | -
 loongarch64   | SYSV (ELF)        | -          | -             | -
 riscv64       | SYSV (ELF)        | -          | -             | -
+s390x         | SYSV (ELF)        | -          | -             | -
 
 Format: `ABI (binary format)`.
 Source: [Boost.Context](http://www.boost.org/doc/libs/1_60_0/libs/context/doc/html/context/architectures.html)
