@@ -44,10 +44,13 @@ Architecture  | Linux (UNIX)      | Windows    | MacOS X       | iOS
 i386          | SYSV (ELF)        | MS (PE)    | SYSV (MACH-O) | -
 x86_64        | SYSV, X32 (ELF)   | MS (PE)    | SYSV (MACH-O) | -
 arm (aarch32) | AAPCS (ELF)       | AAPCS (PE) | -             | AAPCS (MACH-O)
-arm (aarch64) | AAPCS (ELF)       | -          | -             | AAPCS (MACH-O)
+arm (aarch64) | AAPCS (ELF)       | AAPCS (PE) | -             | AAPCS (MACH-O)
 mips1         | O32 (ELF)         | -          | -             | -
+mips64        | N64 (ELF)         | -          | -             | -
 ppc32         | SYSV (ELF), XCOFF | -          | SYSV (MACH-O) | -
 ppc64         | SYSV (ELF), XCOFF | -          | SYSV (MACH-O) | -
+loongarch64   | SYSV (ELF)        | -          | -             | -
+riscv64       | SYSV (ELF)        | -          | -             | -
 
 Format: `ABI (binary format)`.
 Source: [Boost.Context](http://www.boost.org/doc/libs/1_60_0/libs/context/doc/html/context/architectures.html)

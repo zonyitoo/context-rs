@@ -24,6 +24,9 @@ fn main() {
         "powerpc" => "ppc32",
         "powerpc64" => "ppc64",
         "x86_64" => "x86_64",
+        "mips64" => "mips64",
+        "loongarch64" => "loongarch64",
+        "riscv64" => "riscv64",
         _ => {
             panic!("Unsupported architecture: {}", target);
         }
@@ -32,6 +35,7 @@ fn main() {
     let abi = match arch {
         "arm" | "arm64" => "aapcs",
         "mips32" => "o32",
+        "mips64" => "n64",
         _ => {
             if is_win {
                 "ms"
