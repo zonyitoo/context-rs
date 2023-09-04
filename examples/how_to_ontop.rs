@@ -8,8 +8,8 @@
 extern crate context;
 use std::panic;
 
-use context::{Context, Transfer};
 use context::stack::ProtectedFixedSizeStack;
+use context::{Context, Transfer};
 
 // This struct is used to demonstrate that the stack is actually being unwound.
 struct Dropper;
@@ -82,7 +82,9 @@ extern "C" fn context_function(t: Transfer) -> ! {
     let stack_ref = stack_ref_from_some_stack(&mut some_stack);
 
     let (result, context) = {
-        let mut carrier = Carrier { context: Some(t.context) };
+        let mut carrier = Carrier {
+            context: Some(t.context),
+        };
 
         let carrier_ptr = &mut carrier as *mut _ as usize;
 

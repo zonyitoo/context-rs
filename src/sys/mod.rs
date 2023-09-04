@@ -12,12 +12,7 @@ mod unix;
 
 #[cfg(unix)]
 pub use self::unix::{
-    allocate_stack,
-    deallocate_stack,
-    max_stack_size,
-    min_stack_size,
-    page_size,
-    protect_stack,
+    allocate_stack, deallocate_stack, max_stack_size, min_stack_size, page_size, protect_stack,
 };
 
 #[cfg(windows)]
@@ -25,12 +20,7 @@ mod windows;
 
 #[cfg(windows)]
 pub use self::windows::{
-    allocate_stack,
-    deallocate_stack,
-    max_stack_size,
-    min_stack_size,
-    page_size,
-    protect_stack,
+    allocate_stack, deallocate_stack, max_stack_size, min_stack_size, page_size, protect_stack,
 };
 
 pub fn default_stack_size() -> usize {

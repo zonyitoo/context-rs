@@ -7,8 +7,8 @@
 
 extern crate cc;
 
-use std::path::PathBuf;
 use std::env;
+use std::path::PathBuf;
 
 fn main() {
     let target: String = env::var("TARGET").unwrap();
