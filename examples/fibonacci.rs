@@ -7,8 +7,8 @@
 
 extern crate context;
 
-use context::{Context, Transfer};
 use context::stack::ProtectedFixedSizeStack;
+use context::{Context, Transfer};
 
 // Print the natural numbers from 0 to 9 using a "generator" preserving state on the stack.
 fn main() {

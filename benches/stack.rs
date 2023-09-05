@@ -10,7 +10,7 @@
 extern crate context;
 extern crate test;
 
-use context::stack::{Stack, FixedSizeStack, ProtectedFixedSizeStack};
+use context::stack::{FixedSizeStack, ProtectedFixedSizeStack, Stack};
 use test::Bencher;
 
 #[bench]
