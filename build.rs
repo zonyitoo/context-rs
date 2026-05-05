@@ -57,7 +57,7 @@ fn main() {
     };
 
     let (asm, ext) = if is_win_msvc {
-        if arch == "arm" {
+        if matches!(arch, "arm" | "arm64") {
             ("armasm", "asm")
         } else {
             ("masm", "asm")
